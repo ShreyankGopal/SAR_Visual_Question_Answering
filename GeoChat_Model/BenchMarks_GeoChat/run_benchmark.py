@@ -51,8 +51,8 @@ from PIL import Image
 SCRIPT_DIR   = Path(__file__).resolve().parent
 REPO_DIR     = SCRIPT_DIR.parent
 GEOCHAT_DIR  = REPO_DIR / "GeoChat"
-DATA_DIR     = Path("/home/saishruti/Research1/Shreyank_20_credit/Minor_dataset_experiments/data")
-PATCHES_ROOT = Path("/home/saishruti/Research1/Shreyank_20_credit/Minor_dataset_experiments")
+DATA_DIR     = Path("/home/saishruti/Research1/Shreyank_20_credit/DataGen/data")
+PATCHES_ROOT = Path("/home/saishruti/Research1/Shreyank_20_credit/DataGen")
 
 sys.path.insert(0, str(GEOCHAT_DIR))
 
