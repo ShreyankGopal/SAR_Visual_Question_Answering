@@ -1,0 +1,11 @@
+{
+  "regional_vqa": 144961,
+  "region_grounding": 42200,
+  "global_classification": 42260,
+  "sar_bbox_variance": 13926,
+  "sar_observation": 60274,
+  "global_quantitative": 29295,
+  "surrounding_classes": 12139,
+  "comparative_spatial": 19250,
+  "sar_comparative": 16911
+}

@@ -242,7 +242,7 @@ print(f"\nGeoChat Answer: {model_output}")
 import sys
 import os
 # Ensure we can import visualise_image_label
-sys.path.append("/home/saishruti/Research1/Shreyank_20_credit/Minor_dataset_experiments")
+sys.path.append("/home/saishruti/Research1/Shreyank_20_credit/DataGen")
 try:
     from visualise_image_label import visualise
     

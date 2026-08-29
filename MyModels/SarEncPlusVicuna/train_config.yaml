@@ -1,0 +1,31 @@
+# train_config.yaml
+# SAR-VLM Training Configuration
+
+data:
+  train_jsonl: "/home/saishruti/Research1/Shreyank_20_credit/DataGen/data/train.jsonl"
+  val_jsonl: "/home/saishruti/Research1/Shreyank_20_credit/DataGen/data/val.jsonl"
+  data_root: "/home/saishruti/Research1/Shreyank_20_credit/DataGen/" # Prepended to image paths in JSON
+
+model:
+  vicuna_path: "lmsys/vicuna-7b-v1.5"
+  encoder_checkpoint: "/home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/mars_base_sar_encoder_only.pth"
+  d_sar: 1024
+  n_visual: 256
+
+lora:
+  r: 16
+  alpha: 32
+  dropout: 0.05
+  target_modules: ["q_proj", "k_proj", "v_proj", "o_proj"]
+
+training:
+  epochs: 3
+  # Effective batch size = micro_batch_size * gradient_accumulation_steps
+  # 4 * 4 = 16
+  micro_batch_size: 4
+  gradient_accumulation_steps: 4
+  learning_rate: 2.0e-5
+  weight_decay: 0.0
+  max_length: 512 # Max text sequence length
+  save_dir: "/home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints"
+  log_file: "/home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/training.log"

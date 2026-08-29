@@ -25,3 +25,7 @@ env/
 .vscode/
 .idea/
 .DS_Store
+Benchmarking/*.csv
+Benchmarking/*.json
+Benchmarking/*.txt
+checkpoints/

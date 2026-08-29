@@ -1,0 +1,91 @@
+{
+  "source": "OpenEarthMap SAR+LULC",
+  "actual_mask_encoding": "1-indexed (1\u20138), NOT 0-indexed",
+  "class_map_detected": {
+    "1": "Bareland",
+    "2": "Rangeland",
+    "3": "Developed Space",
+    "4": "Road",
+    "5": "Tree",
+    "6": "Water",
+    "7": "Agriculture Land",
+    "8": "Building"
+  },
+  "splits": {
+    "train": {
+      "sar_count": 4333,
+      "label_count": 4333,
+      "matched_pairs": 4333,
+      "sar_missing_label": [],
+      "label_missing_sar": []
+    }
+  },
+  "image_properties": {
+    "bands": 1,
+    "height": 1024,
+    "width": 1024,
+    "dtype": "uint8",
+    "consistent_across_samples": true
+  },
+  "mask_properties": {
+    "bands": 1,
+    "height": 1024,
+    "width": 1024,
+    "dtype": "uint8",
+    "consistent_across_samples": true,
+    "unique_values_in_sample": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8
+    ]
+  },
+  "class_pixel_distribution": {
+    "Bareland": {
+      "class_id": 1,
+      "total_pixels": 80189385,
+      "proportion": 0.017649
+    },
+    "Rangeland": {
+      "class_id": 2,
+      "total_pixels": 1110540553,
+      "proportion": 0.244425
+    },
+    "Developed Space": {
+      "class_id": 3,
+      "total_pixels": 1052207876,
+      "proportion": 0.231586
+    },
+    "Road": {
+      "class_id": 4,
+      "total_pixels": 336422060,
+      "proportion": 0.074045
+    },
+    "Tree": {
+      "class_id": 5,
+      "total_pixels": 646209909,
+      "proportion": 0.142228
+    },
+    "Water": {
+      "class_id": 6,
+      "total_pixels": 493125323,
+      "proportion": 0.108535
+    },
+    "Agriculture Land": {
+      "class_id": 7,
+      "total_pixels": 307731504,
+      "proportion": 0.06773
+    },
+    "Building": {
+      "class_id": 8,
+      "total_pixels": 510393830,
+      "proportion": 0.112335
+    }
+  },
+  "missing_corrupt_pairs": [],
+  "total_train_pixels": 4543479808
+}
