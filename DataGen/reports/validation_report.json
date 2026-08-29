@@ -1,0 +1,26 @@
+{
+  "splits": {
+    "train": {
+      "split": "train",
+      "total_records": 266992,
+      "errors": [],
+      "warnings": [],
+      "passed": true
+    },
+    "val": {
+      "split": "val",
+      "total_records": 57112,
+      "errors": [],
+      "warnings": [],
+      "passed": true
+    },
+    "test": {
+      "split": "test",
+      "total_records": 57112,
+      "errors": [],
+      "warnings": [],
+      "passed": true
+    }
+  },
+  "overall_passed": true
+}

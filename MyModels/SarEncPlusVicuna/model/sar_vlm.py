@@ -120,9 +120,10 @@ def build_sar_encoder(
         in_chans=1,
         img_size=512,
     )
-
+    print("check point path is ",checkpoint_path)
     # Load checkpoint — handle various save formats
     state = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
+    
     if isinstance(state, dict):
         # Common keys: 'model', 'state_dict', 'encoder'
         for key in ("model", "state_dict", "encoder"):
@@ -161,10 +162,10 @@ class _SAREncoderWrapper(nn.Module):
             [B, H*W, d_sar]  where H=W=16 for 512px SwinV2-Base → [B, 256, 1024]
         """
         feature_maps = self.backbone(sar_input)  # list [f0, f1, f2, f3]
-        f3 = feature_maps[-1]                    # [B, d_sar, H, W]
-        B, C, H, W = f3.shape
-        # Flatten spatial dimensions: [B, d_sar, H, W] → [B, H*W, d_sar]
-        return f3.permute(0, 2, 3, 1).reshape(B, H * W, C)
+        f3 = feature_maps[-1]                    # timm swinv2 returns [B, H, W, C]
+        B, H, W, C = f3.shape
+        # Flatten spatial dimensions: [B, H, W, C] → [B, H*W, C]
+        return f3.reshape(B, H * W, C)
 
 
 # ---------------------------------------------------------------------------
@@ -276,15 +277,20 @@ class SARVLM(nn.Module):
         config._attn_implementation = "eager"
 
         print(f"[SARVLM] Loading Vicuna weights from {vicuna_path} ...")
+        
+        # Load weights on CPU first to avoid GPU OOM during loading
+        from transformers import AutoModelForCausalLM
         vicuna_base = AutoModelForCausalLM.from_pretrained(
             vicuna_path,
             torch_dtype=torch_dtype,
             attn_implementation="eager",
+            low_cpu_mem_usage=True,
         )
-
-        # Build HybridLlamaForCausalLM with the same config.
+        
+        # Build HybridLlamaForCausalLM
         hybrid_vicuna = HybridLlamaForCausalLM(config)
-        # Transfer pretrained weights — all keys match, strict=True should work.
+        
+        # Copy weights from CPU to hybrid_vicuna
         result = hybrid_vicuna.load_state_dict(vicuna_base.state_dict(), strict=True)
         if result.missing_keys or result.unexpected_keys:
             print(f"[SARVLM] WARNING — missing: {result.missing_keys}, "
@@ -292,7 +298,10 @@ class SARVLM(nn.Module):
         else:
             print("[SARVLM] Vicuna weights loaded successfully (0 missing, 0 unexpected).")
 
-        del vicuna_base  # free memory
+        # Immediately delete vicuna_base and force garbage collection
+        del vicuna_base
+        import gc
+        gc.collect()
 
         # SAR encoder
         if sar_encoder is None:
@@ -379,7 +388,8 @@ class SARVLM(nn.Module):
         with torch.no_grad():
             features = self.sar_encoder(sar_input)  # [B, N_visual, d_sar]
         # Detach so the projector's gradient graph starts at sar_features.
-        return features.detach()
+        # Cast to match projector dtype to avoid dtype mismatch
+        return features.detach().to(self.projector.proj[0].weight.dtype)
 
     def forward(
         self,

@@ -1,0 +1,494 @@
+[2026-08-24 12:35:52] Starting training on device: cuda
+[2026-08-24 12:35:57] Loading SAR Encoder and Hybrid Vicuna Model...
+[2026-08-24 12:42:13] Starting training on device: cuda
+[2026-08-24 12:42:14] Loading SAR Encoder and Hybrid Vicuna Model...
+[2026-08-24 18:14:20] Starting training on device: cuda
+[2026-08-24 18:14:21] Loading SAR Encoder and Hybrid Vicuna Model...
+[2026-08-24 18:19:41] Starting training on device: cuda
+[2026-08-24 18:19:42] Loading SAR Encoder and Hybrid Vicuna Model...
+[2026-08-24 18:32:19] Starting training on device: cuda
+[2026-08-24 18:32:22] Loading SAR Encoder and Hybrid Vicuna Model...
+[2026-08-24 18:34:46] Starting training on device: cuda
+[2026-08-24 18:34:47] Loading SAR Encoder and Hybrid Vicuna Model...
+[2026-08-24 18:39:57] Starting training on device: cuda
+[2026-08-24 18:39:58] Loading SAR Encoder and Hybrid Vicuna Model...
+[2026-08-24 18:42:56] Starting training on device: cuda
+[2026-08-24 18:42:57] Loading SAR Encoder and Hybrid Vicuna Model...
+[2026-08-24 18:43:56] Starting training on device: cuda
+[2026-08-24 18:43:57] Loading SAR Encoder and Hybrid Vicuna Model...
+[2026-08-24 18:46:44] Loading datasets...
+[2026-08-24 18:46:57] --- Epoch 1/3 ---
+[2026-08-24 19:00:09] Starting training on device: cuda
+[2026-08-24 19:00:10] Loading SAR Encoder and Hybrid Vicuna Model...
+[2026-08-24 19:02:38] Loading datasets...
+[2026-08-24 19:02:49] --- Epoch 1/3 ---
+[2026-08-24 19:09:44] Starting training on device: cuda
+[2026-08-24 19:09:45] Loading SAR Encoder and Hybrid Vicuna Model...
+[2026-08-24 19:12:10] Loading datasets...
+[2026-08-24 19:12:21] --- Epoch 1/3 ---
+[2026-08-24 19:17:51] Starting training on device: cuda
+[2026-08-24 19:17:52] Loading SAR Encoder and Hybrid Vicuna Model...
+[2026-08-24 19:20:33] Loading datasets...
+[2026-08-24 19:20:44] --- Epoch 1/3 ---
+[2026-08-25 23:07:01] Epoch 1 | Train Loss: 0.3225
+[2026-08-26 01:14:00] Epoch 1 | Validation Loss: 0.2942
+[2026-08-26 01:14:00] Sampling 10 outputs from Validation Set...
+[2026-08-26 01:21:54] Starting training on device: cuda
+[2026-08-26 01:21:55] Loading SAR Encoder and Hybrid Vicuna Model...
+[2026-08-26 01:25:23] Loading datasets...
+[2026-08-26 01:25:46] --- Epoch 1/3 ---
+[2026-08-26 01:26:17] Saving checkpoint at global step 20 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_20
+[2026-08-26 01:26:18] Checkpoint saved successfully at step 20.
+[2026-08-26 01:26:48] Saving checkpoint at global step 40 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_40
+[2026-08-26 01:26:49] Checkpoint saved successfully at step 40.
+[2026-08-26 01:27:19] Saving checkpoint at global step 60 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_60
+[2026-08-26 01:27:20] Checkpoint saved successfully at step 60.
+[2026-08-26 01:27:49] Saving checkpoint at global step 80 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_80
+[2026-08-26 01:27:50] Checkpoint saved successfully at step 80.
+[2026-08-26 01:28:20] Saving checkpoint at global step 100 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_100
+[2026-08-26 01:28:21] Checkpoint saved successfully at step 100.
+[2026-08-26 01:28:51] Saving checkpoint at global step 120 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_120
+[2026-08-26 01:28:52] Checkpoint saved successfully at step 120.
+[2026-08-26 01:29:21] Saving checkpoint at global step 140 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_140
+[2026-08-26 01:29:22] Checkpoint saved successfully at step 140.
+[2026-08-26 01:29:52] Saving checkpoint at global step 160 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_160
+[2026-08-26 01:29:53] Checkpoint saved successfully at step 160.
+[2026-08-26 01:30:23] Saving checkpoint at global step 180 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_180
+[2026-08-26 01:30:23] Checkpoint saved successfully at step 180.
+[2026-08-26 01:30:53] Saving checkpoint at global step 200 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_200
+[2026-08-26 01:30:54] Checkpoint saved successfully at step 200.
+[2026-08-26 01:31:24] Saving checkpoint at global step 220 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_220
+[2026-08-26 01:31:25] Checkpoint saved successfully at step 220.
+[2026-08-26 01:31:56] Saving checkpoint at global step 240 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_240
+[2026-08-26 01:31:57] Checkpoint saved successfully at step 240.
+[2026-08-26 01:32:27] Saving checkpoint at global step 260 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_260
+[2026-08-26 01:32:28] Checkpoint saved successfully at step 260.
+[2026-08-26 01:32:58] Saving checkpoint at global step 280 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_280
+[2026-08-26 01:32:59] Checkpoint saved successfully at step 280.
+[2026-08-26 01:33:30] Saving checkpoint at global step 300 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_300
+[2026-08-26 01:33:30] Checkpoint saved successfully at step 300.
+[2026-08-26 01:34:01] Saving checkpoint at global step 320 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_320
+[2026-08-26 01:34:02] Checkpoint saved successfully at step 320.
+[2026-08-26 01:34:32] Saving checkpoint at global step 340 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_340
+[2026-08-26 01:34:33] Checkpoint saved successfully at step 340.
+[2026-08-26 01:35:03] Saving checkpoint at global step 360 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_360
+[2026-08-26 01:35:03] Checkpoint saved successfully at step 360.
+[2026-08-26 01:35:34] Saving checkpoint at global step 380 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_380
+[2026-08-26 01:35:34] Checkpoint saved successfully at step 380.
+[2026-08-26 01:36:05] Saving checkpoint at global step 400 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_400
+[2026-08-26 01:36:06] Checkpoint saved successfully at step 400.
+[2026-08-26 01:36:35] Saving checkpoint at global step 420 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_420
+[2026-08-26 01:36:36] Checkpoint saved successfully at step 420.
+[2026-08-26 01:37:06] Saving checkpoint at global step 440 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_440
+[2026-08-26 01:37:07] Checkpoint saved successfully at step 440.
+[2026-08-26 01:37:37] Saving checkpoint at global step 460 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_460
+[2026-08-26 01:37:38] Checkpoint saved successfully at step 460.
+[2026-08-26 01:38:09] Saving checkpoint at global step 480 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_480
+[2026-08-26 01:38:10] Checkpoint saved successfully at step 480.
+[2026-08-26 01:38:39] Saving checkpoint at global step 500 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_500
+[2026-08-26 01:38:40] Checkpoint saved successfully at step 500.
+[2026-08-26 01:39:10] Saving checkpoint at global step 520 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_520
+[2026-08-26 01:39:10] Checkpoint saved successfully at step 520.
+[2026-08-26 01:39:41] Saving checkpoint at global step 540 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_540
+[2026-08-26 01:39:42] Checkpoint saved successfully at step 540.
+[2026-08-26 01:40:11] Saving checkpoint at global step 560 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_560
+[2026-08-26 01:40:12] Checkpoint saved successfully at step 560.
+[2026-08-26 01:40:43] Saving checkpoint at global step 580 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_580
+[2026-08-26 01:40:44] Checkpoint saved successfully at step 580.
+[2026-08-26 01:41:14] Saving checkpoint at global step 600 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_600
+[2026-08-26 01:41:15] Checkpoint saved successfully at step 600.
+[2026-08-26 01:41:46] Saving checkpoint at global step 620 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_620
+[2026-08-26 01:41:46] Checkpoint saved successfully at step 620.
+[2026-08-26 01:42:17] Saving checkpoint at global step 640 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_640
+[2026-08-26 01:42:18] Checkpoint saved successfully at step 640.
+[2026-08-26 01:42:48] Saving checkpoint at global step 660 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_660
+[2026-08-26 01:42:49] Checkpoint saved successfully at step 660.
+[2026-08-26 01:43:18] Saving checkpoint at global step 680 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_680
+[2026-08-26 01:43:19] Checkpoint saved successfully at step 680.
+[2026-08-26 01:43:49] Saving checkpoint at global step 700 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_700
+[2026-08-26 01:43:50] Checkpoint saved successfully at step 700.
+[2026-08-26 01:44:20] Saving checkpoint at global step 720 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_720
+[2026-08-26 01:44:20] Checkpoint saved successfully at step 720.
+[2026-08-26 01:44:51] Saving checkpoint at global step 740 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_740
+[2026-08-26 01:44:52] Checkpoint saved successfully at step 740.
+[2026-08-26 01:45:22] Saving checkpoint at global step 760 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_760
+[2026-08-26 01:45:23] Checkpoint saved successfully at step 760.
+[2026-08-26 01:45:52] Saving checkpoint at global step 780 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_780
+[2026-08-26 01:45:53] Checkpoint saved successfully at step 780.
+[2026-08-26 01:46:23] Saving checkpoint at global step 800 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_800
+[2026-08-26 01:46:24] Checkpoint saved successfully at step 800.
+[2026-08-26 01:46:54] Saving checkpoint at global step 820 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_820
+[2026-08-26 01:46:54] Checkpoint saved successfully at step 820.
+[2026-08-26 01:47:25] Saving checkpoint at global step 840 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_840
+[2026-08-26 01:47:25] Checkpoint saved successfully at step 840.
+[2026-08-26 01:47:55] Saving checkpoint at global step 860 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_860
+[2026-08-26 01:47:56] Checkpoint saved successfully at step 860.
+[2026-08-26 01:48:25] Saving checkpoint at global step 880 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_880
+[2026-08-26 01:48:25] Checkpoint saved successfully at step 880.
+[2026-08-26 01:48:56] Saving checkpoint at global step 900 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_900
+[2026-08-26 01:48:57] Checkpoint saved successfully at step 900.
+[2026-08-26 01:49:27] Saving checkpoint at global step 920 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_920
+[2026-08-26 01:49:28] Checkpoint saved successfully at step 920.
+[2026-08-26 01:49:58] Saving checkpoint at global step 940 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_940
+[2026-08-26 01:49:59] Checkpoint saved successfully at step 940.
+[2026-08-26 01:50:29] Saving checkpoint at global step 960 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_960
+[2026-08-26 01:50:30] Checkpoint saved successfully at step 960.
+[2026-08-26 01:50:59] Saving checkpoint at global step 980 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_980
+[2026-08-26 01:51:00] Checkpoint saved successfully at step 980.
+[2026-08-26 01:51:31] Saving checkpoint at global step 1000 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_1000
+[2026-08-26 01:51:32] Checkpoint saved successfully at step 1000.
+[2026-08-26 01:51:32] ========== EVALUATION AT STEP 1000 ==========
+[2026-08-26 01:51:32] Saving checkpoint at global step 1000 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_1000
+[2026-08-26 01:51:33] Checkpoint saved successfully at step 1000.
+[2026-08-26 03:58:44] Validation Loss: 0.4885
+[2026-08-26 03:58:44] Generating 2 validation samples...
+[2026-08-26 03:58:47] Sample 1: 
+[2026-08-26 03:58:49] Sample 2: 
+[2026-08-26 03:58:49] ========== RESUMING TRAINING AT STEP 1000 ==========
+[2026-08-26 03:59:20] Saving checkpoint at global step 1020 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_1020
+[2026-08-26 03:59:20] Checkpoint saved successfully at step 1020.
+[2026-08-26 03:59:51] Saving checkpoint at global step 1040 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_1040
+[2026-08-26 03:59:52] Checkpoint saved successfully at step 1040.
+[2026-08-26 04:00:23] Saving checkpoint at global step 1060 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_1060
+[2026-08-26 04:00:24] Checkpoint saved successfully at step 1060.
+[2026-08-26 04:00:54] Saving checkpoint at global step 1080 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_1080
+[2026-08-26 04:00:54] Checkpoint saved successfully at step 1080.
+[2026-08-26 04:01:25] Saving checkpoint at global step 1100 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_1100
+[2026-08-26 04:01:26] Checkpoint saved successfully at step 1100.
+[2026-08-26 04:01:57] Saving checkpoint at global step 1120 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_1120
+[2026-08-26 04:01:57] Checkpoint saved successfully at step 1120.
+[2026-08-26 04:02:27] Saving checkpoint at global step 1140 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_1140
+[2026-08-26 04:02:28] Checkpoint saved successfully at step 1140.
+[2026-08-26 04:02:58] Saving checkpoint at global step 1160 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_1160
+[2026-08-26 04:02:59] Checkpoint saved successfully at step 1160.
+[2026-08-26 04:03:28] Saving checkpoint at global step 1180 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_1180
+[2026-08-26 04:03:29] Checkpoint saved successfully at step 1180.
+[2026-08-26 04:04:01] Saving checkpoint at global step 1200 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_1200
+[2026-08-26 04:04:01] Checkpoint saved successfully at step 1200.
+[2026-08-26 04:04:32] Saving checkpoint at global step 1220 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_1220
+[2026-08-26 04:04:33] Checkpoint saved successfully at step 1220.
+[2026-08-26 04:05:03] Saving checkpoint at global step 1240 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_1240
+[2026-08-26 04:05:04] Checkpoint saved successfully at step 1240.
+[2026-08-26 04:05:34] Saving checkpoint at global step 1260 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_1260
+[2026-08-26 04:05:35] Checkpoint saved successfully at step 1260.
+[2026-08-26 04:06:04] Saving checkpoint at global step 1280 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_1280
+[2026-08-26 04:06:05] Checkpoint saved successfully at step 1280.
+[2026-08-26 04:06:36] Saving checkpoint at global step 1300 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_1300
+[2026-08-26 04:06:37] Checkpoint saved successfully at step 1300.
+[2026-08-26 04:07:06] Saving checkpoint at global step 1320 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_1320
+[2026-08-26 04:07:07] Checkpoint saved successfully at step 1320.
+[2026-08-26 04:07:37] Saving checkpoint at global step 1340 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_1340
+[2026-08-26 04:07:37] Checkpoint saved successfully at step 1340.
+[2026-08-26 04:08:09] Saving checkpoint at global step 1360 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_1360
+[2026-08-26 04:08:09] Checkpoint saved successfully at step 1360.
+[2026-08-26 04:08:40] Saving checkpoint at global step 1380 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_1380
+[2026-08-26 04:08:40] Checkpoint saved successfully at step 1380.
+[2026-08-26 04:09:10] Saving checkpoint at global step 1400 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_1400
+[2026-08-26 04:09:11] Checkpoint saved successfully at step 1400.
+[2026-08-26 04:09:41] Saving checkpoint at global step 1420 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_1420
+[2026-08-26 04:09:42] Checkpoint saved successfully at step 1420.
+[2026-08-26 04:10:13] Saving checkpoint at global step 1440 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_1440
+[2026-08-26 04:10:14] Checkpoint saved successfully at step 1440.
+[2026-08-26 04:10:45] Saving checkpoint at global step 1460 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_1460
+[2026-08-26 04:10:46] Checkpoint saved successfully at step 1460.
+[2026-08-26 04:11:16] Saving checkpoint at global step 1480 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_1480
+[2026-08-26 04:11:16] Checkpoint saved successfully at step 1480.
+[2026-08-26 04:11:47] Saving checkpoint at global step 1500 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_1500
+[2026-08-26 04:11:48] Checkpoint saved successfully at step 1500.
+[2026-08-26 04:12:19] Saving checkpoint at global step 1520 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_1520
+[2026-08-26 04:12:19] Checkpoint saved successfully at step 1520.
+[2026-08-26 04:12:51] Saving checkpoint at global step 1540 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_1540
+[2026-08-26 04:12:51] Checkpoint saved successfully at step 1540.
+[2026-08-26 04:13:22] Saving checkpoint at global step 1560 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_1560
+[2026-08-26 04:13:23] Checkpoint saved successfully at step 1560.
+[2026-08-26 04:13:53] Saving checkpoint at global step 1580 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_1580
+[2026-08-26 04:13:54] Checkpoint saved successfully at step 1580.
+[2026-08-26 04:14:24] Saving checkpoint at global step 1600 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_1600
+[2026-08-26 04:14:25] Checkpoint saved successfully at step 1600.
+[2026-08-26 04:14:56] Saving checkpoint at global step 1620 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_1620
+[2026-08-26 04:14:57] Checkpoint saved successfully at step 1620.
+[2026-08-26 04:15:28] Saving checkpoint at global step 1640 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_1640
+[2026-08-26 04:15:28] Checkpoint saved successfully at step 1640.
+[2026-08-26 04:15:59] Saving checkpoint at global step 1660 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_1660
+[2026-08-26 04:15:59] Checkpoint saved successfully at step 1660.
+[2026-08-26 04:16:29] Saving checkpoint at global step 1680 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_1680
+[2026-08-26 04:16:30] Checkpoint saved successfully at step 1680.
+[2026-08-26 04:17:01] Saving checkpoint at global step 1700 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_1700
+[2026-08-26 04:17:01] Checkpoint saved successfully at step 1700.
+[2026-08-26 04:17:32] Saving checkpoint at global step 1720 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_1720
+[2026-08-26 04:17:32] Checkpoint saved successfully at step 1720.
+[2026-08-26 04:18:02] Saving checkpoint at global step 1740 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_1740
+[2026-08-26 04:18:03] Checkpoint saved successfully at step 1740.
+[2026-08-26 04:18:32] Saving checkpoint at global step 1760 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_1760
+[2026-08-26 04:18:33] Checkpoint saved successfully at step 1760.
+[2026-08-26 04:19:04] Saving checkpoint at global step 1780 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_1780
+[2026-08-26 04:19:05] Checkpoint saved successfully at step 1780.
+[2026-08-26 04:19:35] Saving checkpoint at global step 1800 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_1800
+[2026-08-26 04:19:36] Checkpoint saved successfully at step 1800.
+[2026-08-26 04:20:06] Saving checkpoint at global step 1820 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_1820
+[2026-08-26 04:20:07] Checkpoint saved successfully at step 1820.
+[2026-08-26 04:20:38] Saving checkpoint at global step 1840 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_1840
+[2026-08-26 04:20:39] Checkpoint saved successfully at step 1840.
+[2026-08-26 04:21:09] Saving checkpoint at global step 1860 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_1860
+[2026-08-26 04:21:09] Checkpoint saved successfully at step 1860.
+[2026-08-26 04:21:39] Saving checkpoint at global step 1880 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_1880
+[2026-08-26 04:21:40] Checkpoint saved successfully at step 1880.
+[2026-08-26 04:22:09] Saving checkpoint at global step 1900 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_1900
+[2026-08-26 04:22:10] Checkpoint saved successfully at step 1900.
+[2026-08-26 04:22:40] Saving checkpoint at global step 1920 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_1920
+[2026-08-26 04:22:41] Checkpoint saved successfully at step 1920.
+[2026-08-26 04:23:11] Saving checkpoint at global step 1940 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_1940
+[2026-08-26 04:23:11] Checkpoint saved successfully at step 1940.
+[2026-08-26 04:23:42] Saving checkpoint at global step 1960 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_1960
+[2026-08-26 04:23:42] Checkpoint saved successfully at step 1960.
+[2026-08-26 04:24:12] Saving checkpoint at global step 1980 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_1980
+[2026-08-26 04:24:12] Checkpoint saved successfully at step 1980.
+[2026-08-26 04:24:42] Saving checkpoint at global step 2000 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_2000
+[2026-08-26 04:24:43] Checkpoint saved successfully at step 2000.
+[2026-08-26 04:24:43] ========== EVALUATION AT STEP 2000 ==========
+[2026-08-26 04:24:43] Saving checkpoint at global step 2000 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_2000
+[2026-08-26 04:24:43] Checkpoint saved successfully at step 2000.
+[2026-08-26 06:31:06] Validation Loss: 0.3812
+[2026-08-26 06:31:06] Generating 2 validation samples...
+[2026-08-26 06:31:08] Sample 1: 
+[2026-08-26 06:31:09] Sample 2: 
+[2026-08-26 06:31:09] ========== RESUMING TRAINING AT STEP 2000 ==========
+[2026-08-26 06:31:39] Saving checkpoint at global step 2020 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_2020
+[2026-08-26 06:31:40] Checkpoint saved successfully at step 2020.
+[2026-08-26 06:32:10] Saving checkpoint at global step 2040 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_2040
+[2026-08-26 06:32:11] Checkpoint saved successfully at step 2040.
+[2026-08-26 06:32:40] Saving checkpoint at global step 2060 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_2060
+[2026-08-26 06:32:41] Checkpoint saved successfully at step 2060.
+[2026-08-26 06:33:10] Saving checkpoint at global step 2080 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_2080
+[2026-08-26 06:33:11] Checkpoint saved successfully at step 2080.
+[2026-08-26 06:33:41] Saving checkpoint at global step 2100 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_2100
+[2026-08-26 06:33:41] Checkpoint saved successfully at step 2100.
+[2026-08-26 06:34:12] Saving checkpoint at global step 2120 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_2120
+[2026-08-26 06:34:13] Checkpoint saved successfully at step 2120.
+[2026-08-26 06:34:42] Saving checkpoint at global step 2140 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_2140
+[2026-08-26 06:34:43] Checkpoint saved successfully at step 2140.
+[2026-08-26 06:35:13] Saving checkpoint at global step 2160 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_2160
+[2026-08-26 06:35:14] Checkpoint saved successfully at step 2160.
+[2026-08-26 06:35:43] Saving checkpoint at global step 2180 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_2180
+[2026-08-26 06:35:44] Checkpoint saved successfully at step 2180.
+[2026-08-26 06:36:14] Saving checkpoint at global step 2200 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_2200
+[2026-08-26 06:36:15] Checkpoint saved successfully at step 2200.
+[2026-08-26 06:36:45] Saving checkpoint at global step 2220 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_2220
+[2026-08-26 06:36:46] Checkpoint saved successfully at step 2220.
+[2026-08-26 06:37:16] Saving checkpoint at global step 2240 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_2240
+[2026-08-26 06:37:17] Checkpoint saved successfully at step 2240.
+[2026-08-26 06:37:47] Saving checkpoint at global step 2260 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_2260
+[2026-08-26 06:37:48] Checkpoint saved successfully at step 2260.
+[2026-08-26 06:38:18] Saving checkpoint at global step 2280 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_2280
+[2026-08-26 06:38:18] Checkpoint saved successfully at step 2280.
+[2026-08-26 06:38:48] Saving checkpoint at global step 2300 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_2300
+[2026-08-26 06:38:49] Checkpoint saved successfully at step 2300.
+[2026-08-26 06:39:19] Saving checkpoint at global step 2320 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_2320
+[2026-08-26 06:39:20] Checkpoint saved successfully at step 2320.
+[2026-08-26 06:39:50] Saving checkpoint at global step 2340 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_2340
+[2026-08-26 06:39:51] Checkpoint saved successfully at step 2340.
+[2026-08-26 06:40:20] Saving checkpoint at global step 2360 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_2360
+[2026-08-26 06:40:21] Checkpoint saved successfully at step 2360.
+[2026-08-26 06:40:51] Saving checkpoint at global step 2380 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_2380
+[2026-08-26 06:40:51] Checkpoint saved successfully at step 2380.
+[2026-08-26 06:41:21] Saving checkpoint at global step 2400 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_2400
+[2026-08-26 06:41:22] Checkpoint saved successfully at step 2400.
+[2026-08-26 06:41:53] Saving checkpoint at global step 2420 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_2420
+[2026-08-26 06:41:53] Checkpoint saved successfully at step 2420.
+[2026-08-26 06:42:23] Saving checkpoint at global step 2440 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_2440
+[2026-08-26 06:42:24] Checkpoint saved successfully at step 2440.
+[2026-08-26 06:42:53] Saving checkpoint at global step 2460 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_2460
+[2026-08-26 06:42:54] Checkpoint saved successfully at step 2460.
+[2026-08-26 06:43:24] Saving checkpoint at global step 2480 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_2480
+[2026-08-26 06:43:25] Checkpoint saved successfully at step 2480.
+[2026-08-26 06:43:55] Saving checkpoint at global step 2500 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_2500
+[2026-08-26 06:43:55] Checkpoint saved successfully at step 2500.
+[2026-08-26 06:44:25] Saving checkpoint at global step 2520 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_2520
+[2026-08-26 06:44:26] Checkpoint saved successfully at step 2520.
+[2026-08-26 06:44:56] Saving checkpoint at global step 2540 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_2540
+[2026-08-26 06:44:57] Checkpoint saved successfully at step 2540.
+[2026-08-26 06:45:26] Saving checkpoint at global step 2560 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_2560
+[2026-08-26 06:45:27] Checkpoint saved successfully at step 2560.
+[2026-08-26 06:45:57] Saving checkpoint at global step 2580 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_2580
+[2026-08-26 06:45:58] Checkpoint saved successfully at step 2580.
+[2026-08-26 06:46:27] Saving checkpoint at global step 2600 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_2600
+[2026-08-26 06:46:28] Checkpoint saved successfully at step 2600.
+[2026-08-26 06:46:58] Saving checkpoint at global step 2620 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_2620
+[2026-08-26 06:46:59] Checkpoint saved successfully at step 2620.
+[2026-08-26 06:47:29] Saving checkpoint at global step 2640 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_2640
+[2026-08-26 06:47:29] Checkpoint saved successfully at step 2640.
+[2026-08-26 06:47:59] Saving checkpoint at global step 2660 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_2660
+[2026-08-26 06:48:00] Checkpoint saved successfully at step 2660.
+[2026-08-26 06:48:29] Saving checkpoint at global step 2680 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_2680
+[2026-08-26 06:48:30] Checkpoint saved successfully at step 2680.
+[2026-08-26 06:49:00] Saving checkpoint at global step 2700 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_2700
+[2026-08-26 06:49:01] Checkpoint saved successfully at step 2700.
+[2026-08-26 06:49:31] Saving checkpoint at global step 2720 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_2720
+[2026-08-26 06:49:32] Checkpoint saved successfully at step 2720.
+[2026-08-26 06:50:02] Saving checkpoint at global step 2740 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_2740
+[2026-08-26 06:50:03] Checkpoint saved successfully at step 2740.
+[2026-08-26 06:50:33] Saving checkpoint at global step 2760 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_2760
+[2026-08-26 06:50:33] Checkpoint saved successfully at step 2760.
+[2026-08-26 06:51:04] Saving checkpoint at global step 2780 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_2780
+[2026-08-26 06:51:05] Checkpoint saved successfully at step 2780.
+[2026-08-26 06:51:35] Saving checkpoint at global step 2800 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_2800
+[2026-08-26 06:51:36] Checkpoint saved successfully at step 2800.
+[2026-08-26 06:52:06] Saving checkpoint at global step 2820 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_2820
+[2026-08-26 06:52:07] Checkpoint saved successfully at step 2820.
+[2026-08-26 06:52:37] Saving checkpoint at global step 2840 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_2840
+[2026-08-26 06:52:38] Checkpoint saved successfully at step 2840.
+[2026-08-26 06:53:07] Saving checkpoint at global step 2860 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_2860
+[2026-08-26 06:53:08] Checkpoint saved successfully at step 2860.
+[2026-08-26 06:53:38] Saving checkpoint at global step 2880 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_2880
+[2026-08-26 06:53:39] Checkpoint saved successfully at step 2880.
+[2026-08-26 06:54:09] Saving checkpoint at global step 2900 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_2900
+[2026-08-26 06:54:10] Checkpoint saved successfully at step 2900.
+[2026-08-26 06:54:39] Saving checkpoint at global step 2920 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_2920
+[2026-08-26 06:54:40] Checkpoint saved successfully at step 2920.
+[2026-08-26 06:55:10] Saving checkpoint at global step 2940 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_2940
+[2026-08-26 06:55:10] Checkpoint saved successfully at step 2940.
+[2026-08-26 06:55:41] Saving checkpoint at global step 2960 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_2960
+[2026-08-26 06:55:41] Checkpoint saved successfully at step 2960.
+[2026-08-26 06:56:11] Saving checkpoint at global step 2980 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_2980
+[2026-08-26 06:56:12] Checkpoint saved successfully at step 2980.
+[2026-08-26 06:56:42] Saving checkpoint at global step 3000 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_3000
+[2026-08-26 06:56:43] Checkpoint saved successfully at step 3000.
+[2026-08-26 06:56:43] ========== EVALUATION AT STEP 3000 ==========
+[2026-08-26 06:56:43] Saving checkpoint at global step 3000 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_3000
+[2026-08-26 06:56:44] Checkpoint saved successfully at step 3000.
+[2026-08-26 09:02:24] Validation Loss: 0.3712
+[2026-08-26 09:02:24] Generating 2 validation samples...
+[2026-08-26 09:02:26] Sample 1: 
+[2026-08-26 09:02:27] Sample 2: 
+[2026-08-26 09:02:27] ========== RESUMING TRAINING AT STEP 3000 ==========
+[2026-08-26 09:02:58] Saving checkpoint at global step 3020 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_3020
+[2026-08-26 09:02:59] Checkpoint saved successfully at step 3020.
+[2026-08-26 09:03:28] Saving checkpoint at global step 3040 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_3040
+[2026-08-26 09:03:29] Checkpoint saved successfully at step 3040.
+[2026-08-26 09:04:00] Saving checkpoint at global step 3060 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_3060
+[2026-08-26 09:04:00] Checkpoint saved successfully at step 3060.
+[2026-08-26 09:04:30] Saving checkpoint at global step 3080 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_3080
+[2026-08-26 09:04:31] Checkpoint saved successfully at step 3080.
+[2026-08-26 09:05:01] Saving checkpoint at global step 3100 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_3100
+[2026-08-26 09:05:01] Checkpoint saved successfully at step 3100.
+[2026-08-26 09:05:31] Saving checkpoint at global step 3120 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_3120
+[2026-08-26 09:05:32] Checkpoint saved successfully at step 3120.
+[2026-08-26 09:06:03] Saving checkpoint at global step 3140 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_3140
+[2026-08-26 09:06:04] Checkpoint saved successfully at step 3140.
+[2026-08-26 09:06:33] Saving checkpoint at global step 3160 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_3160
+[2026-08-26 09:06:34] Checkpoint saved successfully at step 3160.
+[2026-08-26 09:07:04] Saving checkpoint at global step 3180 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_3180
+[2026-08-26 09:07:05] Checkpoint saved successfully at step 3180.
+[2026-08-26 09:07:35] Saving checkpoint at global step 3200 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_3200
+[2026-08-26 09:07:36] Checkpoint saved successfully at step 3200.
+[2026-08-26 09:08:06] Saving checkpoint at global step 3220 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_3220
+[2026-08-26 09:08:07] Checkpoint saved successfully at step 3220.
+[2026-08-26 09:08:37] Saving checkpoint at global step 3240 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_3240
+[2026-08-26 09:08:38] Checkpoint saved successfully at step 3240.
+[2026-08-26 09:09:08] Saving checkpoint at global step 3260 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_3260
+[2026-08-26 09:09:09] Checkpoint saved successfully at step 3260.
+[2026-08-26 09:09:40] Saving checkpoint at global step 3280 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_3280
+[2026-08-26 09:09:40] Checkpoint saved successfully at step 3280.
+[2026-08-26 09:10:11] Saving checkpoint at global step 3300 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_3300
+[2026-08-26 09:10:11] Checkpoint saved successfully at step 3300.
+[2026-08-26 09:10:42] Saving checkpoint at global step 3320 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_3320
+[2026-08-26 09:10:42] Checkpoint saved successfully at step 3320.
+[2026-08-26 09:11:12] Saving checkpoint at global step 3340 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_3340
+[2026-08-26 09:11:13] Checkpoint saved successfully at step 3340.
+[2026-08-26 09:11:43] Saving checkpoint at global step 3360 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_3360
+[2026-08-26 09:11:44] Checkpoint saved successfully at step 3360.
+[2026-08-26 09:12:13] Saving checkpoint at global step 3380 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_3380
+[2026-08-26 09:12:14] Checkpoint saved successfully at step 3380.
+[2026-08-26 09:12:45] Saving checkpoint at global step 3400 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_3400
+[2026-08-26 09:12:46] Checkpoint saved successfully at step 3400.
+[2026-08-26 09:13:16] Saving checkpoint at global step 3420 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_3420
+[2026-08-26 09:13:16] Checkpoint saved successfully at step 3420.
+[2026-08-26 09:13:46] Saving checkpoint at global step 3440 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_3440
+[2026-08-26 09:13:47] Checkpoint saved successfully at step 3440.
+[2026-08-26 09:14:17] Saving checkpoint at global step 3460 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_3460
+[2026-08-26 09:14:17] Checkpoint saved successfully at step 3460.
+[2026-08-26 09:14:47] Saving checkpoint at global step 3480 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_3480
+[2026-08-26 09:14:48] Checkpoint saved successfully at step 3480.
+[2026-08-26 09:15:19] Saving checkpoint at global step 3500 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_3500
+[2026-08-26 09:15:20] Checkpoint saved successfully at step 3500.
+[2026-08-26 09:15:49] Saving checkpoint at global step 3520 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_3520
+[2026-08-26 09:15:50] Checkpoint saved successfully at step 3520.
+[2026-08-26 09:16:20] Saving checkpoint at global step 3540 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_3540
+[2026-08-26 09:16:20] Checkpoint saved successfully at step 3540.
+[2026-08-26 09:16:50] Saving checkpoint at global step 3560 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_3560
+[2026-08-26 09:16:51] Checkpoint saved successfully at step 3560.
+[2026-08-26 09:17:21] Saving checkpoint at global step 3580 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_3580
+[2026-08-26 09:17:22] Checkpoint saved successfully at step 3580.
+[2026-08-26 09:17:52] Saving checkpoint at global step 3600 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_3600
+[2026-08-26 09:17:53] Checkpoint saved successfully at step 3600.
+[2026-08-26 09:18:22] Saving checkpoint at global step 3620 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_3620
+[2026-08-26 09:18:23] Checkpoint saved successfully at step 3620.
+[2026-08-26 09:18:53] Saving checkpoint at global step 3640 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_3640
+[2026-08-26 09:18:53] Checkpoint saved successfully at step 3640.
+[2026-08-26 09:19:23] Saving checkpoint at global step 3660 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_3660
+[2026-08-26 09:19:24] Checkpoint saved successfully at step 3660.
+[2026-08-26 09:19:54] Saving checkpoint at global step 3680 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_3680
+[2026-08-26 09:19:55] Checkpoint saved successfully at step 3680.
+[2026-08-26 09:20:25] Saving checkpoint at global step 3700 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_3700
+[2026-08-26 09:20:26] Checkpoint saved successfully at step 3700.
+[2026-08-26 09:20:56] Saving checkpoint at global step 3720 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_3720
+[2026-08-26 09:20:57] Checkpoint saved successfully at step 3720.
+[2026-08-26 09:21:26] Saving checkpoint at global step 3740 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_3740
+[2026-08-26 09:21:27] Checkpoint saved successfully at step 3740.
+[2026-08-26 09:21:57] Saving checkpoint at global step 3760 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_3760
+[2026-08-26 09:21:58] Checkpoint saved successfully at step 3760.
+[2026-08-26 09:22:28] Saving checkpoint at global step 3780 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_3780
+[2026-08-26 09:22:29] Checkpoint saved successfully at step 3780.
+[2026-08-26 09:22:59] Saving checkpoint at global step 3800 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_3800
+[2026-08-26 09:23:00] Checkpoint saved successfully at step 3800.
+[2026-08-26 09:23:30] Saving checkpoint at global step 3820 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_3820
+[2026-08-26 09:23:31] Checkpoint saved successfully at step 3820.
+[2026-08-26 09:24:00] Saving checkpoint at global step 3840 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_3840
+[2026-08-26 09:24:01] Checkpoint saved successfully at step 3840.
+[2026-08-26 09:24:30] Saving checkpoint at global step 3860 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_3860
+[2026-08-26 09:24:31] Checkpoint saved successfully at step 3860.
+[2026-08-26 09:25:01] Saving checkpoint at global step 3880 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_3880
+[2026-08-26 09:25:01] Checkpoint saved successfully at step 3880.
+[2026-08-26 09:25:32] Saving checkpoint at global step 3900 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_3900
+[2026-08-26 09:25:32] Checkpoint saved successfully at step 3900.
+[2026-08-26 09:26:02] Saving checkpoint at global step 3920 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_3920
+[2026-08-26 09:26:03] Checkpoint saved successfully at step 3920.
+[2026-08-26 09:26:33] Saving checkpoint at global step 3940 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_3940
+[2026-08-26 09:26:33] Checkpoint saved successfully at step 3940.
+[2026-08-26 09:27:04] Saving checkpoint at global step 3960 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_3960
+[2026-08-26 09:27:04] Checkpoint saved successfully at step 3960.
+[2026-08-26 09:27:34] Saving checkpoint at global step 3980 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_3980
+[2026-08-26 09:27:35] Checkpoint saved successfully at step 3980.
+[2026-08-26 09:28:04] Saving checkpoint at global step 4000 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_4000
+[2026-08-26 09:28:05] Checkpoint saved successfully at step 4000.
+[2026-08-26 09:28:05] ========== EVALUATION AT STEP 4000 ==========
+[2026-08-26 09:28:05] Saving checkpoint at global step 4000 -> /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_4000
+[2026-08-26 09:28:06] Checkpoint saved successfully at step 4000.
+[2026-08-26 16:48:15] Running validation on device: cuda
+[2026-08-26 16:48:16] Loading SAR Encoder and Hybrid Vicuna Model...
+[2026-08-26 21:40:32] Loading checkpoint from /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_4000...
+[2026-08-26 21:47:31] Loading checkpoint from /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_4000...
+[2026-08-26 21:47:31] Loaded training state: global_step=4000
+[2026-08-26 21:47:31] Checkpoint loaded successfully.
+[2026-08-26 21:47:38] ========== STARTING VALIDATION AT STEP 4000 ==========
+[2026-08-26 22:57:17] Loading checkpoint from /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_4000...
+[2026-08-26 22:57:17] Loaded training state: global_step=4000
+[2026-08-26 22:57:17] Checkpoint loaded successfully.
+[2026-08-26 23:02:29] Loading checkpoint from /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_4000...
+[2026-08-26 23:02:29] Loaded training state: global_step=4000
+[2026-08-26 23:02:29] Checkpoint loaded successfully.
+[2026-08-26 23:13:22] Loading checkpoint from /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_4000...
+[2026-08-26 23:13:22] Loaded training state: global_step=4000
+[2026-08-26 23:13:22] Checkpoint loaded successfully.
+[2026-08-27 10:46:47] Loading checkpoint from /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_4000...
+[2026-08-27 10:46:47] Loaded training state: global_step=4000
+[2026-08-27 10:46:47] Checkpoint loaded successfully.
+[2026-08-28 22:24:09] Loading checkpoint from /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_4000...
+[2026-08-28 22:24:09] Loaded training state: global_step=4000
+[2026-08-28 22:24:09] Checkpoint loaded successfully.
+[2026-08-28 22:52:09] Loading checkpoint from /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_4000...
+[2026-08-28 22:52:09] Loaded training state: global_step=4000
+[2026-08-28 22:52:09] Checkpoint loaded successfully.
+[2026-08-29 00:19:56] Loading checkpoint from /home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/step_4000...
+[2026-08-29 00:19:57] Loaded training state: global_step=4000
+[2026-08-29 00:19:57] Checkpoint loaded successfully.

@@ -1,0 +1,128 @@
+================================================================
+  GeoChat Benchmark  --  TEST split
+  Timestamp : 20260820_214729
+  Total samples : 57112   Errors: 0
+================================================================
+
+DATASET-WIDE STATISTICS
+----------------------------------------------------------------
+  Samples          : 57112  (single-word GT: 21958, multi-word: 35154)
+  BLEU1     : 0.2017
+  BLEU2     : 0.0952
+  BLEU3     : 0.0671
+  BLEU4     : 0.0512
+  ROUGE1    : 0.2372
+  ROUGE2    : 0.0576
+  ROUGEL    : 0.2248
+  EXACT MATCH (single-word GT only): 0.2720  (5973/21958 correct)
+
+PER-CATEGORY STATISTICS
+================================================================
+
+  [comparative_spatial]  (n=2861)
+--------------------------------
+    Samples          : 2861  (single-word GT: 654, multi-word: 2207)
+    BLEU1     : 0.3140
+    BLEU2     : 0.1842
+    BLEU3     : 0.1336
+    BLEU4     : 0.0916
+    ROUGE1    : 0.4176
+    ROUGE2    : 0.1862
+    ROUGEL    : 0.4176
+    EXACT MATCH (single-word GT only): 0.5153  (337/654 correct)
+
+  [global_classification]  (n=6346)
+--------------------------------
+    Samples          : 6346  (single-word GT: 4709, multi-word: 1637)
+    BLEU1     : 0.2845
+    BLEU2     : 0.1118
+    BLEU3     : 0.0783
+    BLEU4     : 0.0632
+    ROUGE1    : 0.3101
+    ROUGE2    : 0.0456
+    ROUGEL    : 0.3049
+    EXACT MATCH (single-word GT only): 0.3166  (1491/4709 correct)
+
+  [global_quantitative]  (n=4530)
+--------------------------------
+    Samples          : 4530  (single-word GT: 1086, multi-word: 3444)
+    BLEU1     : 0.1483
+    BLEU2     : 0.0507
+    BLEU3     : 0.0329
+    BLEU4     : 0.0268
+    ROUGE1    : 0.1649
+    ROUGE2    : 0.0091
+    ROUGEL    : 0.1636
+    EXACT MATCH (single-word GT only): 0.5129  (557/1086 correct)
+
+  [region_grounding]  (n=6153)
+--------------------------------
+    Samples          : 6153  (single-word GT: 2121, multi-word: 4032)
+    BLEU1     : 0.1077
+    BLEU2     : 0.0396
+    BLEU3     : 0.0246
+    BLEU4     : 0.0203
+    ROUGE1    : 0.1347
+    ROUGE2    : 0.0071
+    ROUGEL    : 0.1341
+    EXACT MATCH (single-word GT only): 0.1947  (413/2121 correct)
+
+  [regional_vqa]  (n=21642)
+--------------------------------
+    Samples          : 21642  (single-word GT: 8267, multi-word: 13375)
+    BLEU1     : 0.1268
+    BLEU2     : 0.0431
+    BLEU3     : 0.0276
+    BLEU4     : 0.0220
+    ROUGE1    : 0.1446
+    ROUGE2    : 0.0099
+    ROUGEL    : 0.1381
+    EXACT MATCH (single-word GT only): 0.2206  (1824/8267 correct)
+
+  [sar_bbox_variance]  (n=2048)
+--------------------------------
+    Samples          : 2048  (single-word GT: 0, multi-word: 2048)
+    BLEU1     : 0.3657
+    BLEU2     : 0.2052
+    BLEU3     : 0.1178
+    BLEU4     : 0.0568
+    ROUGE1    : 0.4462
+    ROUGE2    : 0.1443
+    ROUGEL    : 0.3640
+
+  [sar_comparative]  (n=2656)
+--------------------------------
+    Samples          : 2656  (single-word GT: 2169, multi-word: 487)
+    BLEU1     : 0.3200
+    BLEU2     : 0.1053
+    BLEU3     : 0.0698
+    BLEU4     : 0.0571
+    ROUGE1    : 0.3290
+    ROUGE2    : 0.0101
+    ROUGEL    : 0.3290
+    EXACT MATCH (single-word GT only): 0.3794  (823/2169 correct)
+
+  [sar_observation]  (n=9080)
+--------------------------------
+    Samples          : 9080  (single-word GT: 2952, multi-word: 6128)
+    BLEU1     : 0.2713
+    BLEU2     : 0.1782
+    BLEU3     : 0.1378
+    BLEU4     : 0.1072
+    ROUGE1    : 0.3396
+    ROUGE2    : 0.1586
+    ROUGEL    : 0.3277
+    EXACT MATCH (single-word GT only): 0.1789  (528/2952 correct)
+
+  [surrounding_classes]  (n=1796)
+--------------------------------
+    Samples          : 1796  (single-word GT: 0, multi-word: 1796)
+    BLEU1     : 0.3767
+    BLEU2     : 0.2666
+    BLEU3     : 0.2095
+    BLEU4     : 0.1651
+    ROUGE1    : 0.4493
+    ROUGE2    : 0.2251
+    ROUGEL    : 0.3134
+
+================================================================

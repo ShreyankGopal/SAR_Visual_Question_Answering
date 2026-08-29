@@ -9,7 +9,7 @@ dataset:
   val_sar_dir:     /home/saishruti/Research1/Datasets/OpenEarthMap/val/sar_images  # SAR only, no labels
 
 output:
-  base_dir:  /home/saishruti/Research1/Shreyank_20_credit/Minor_dataset_experiments
+  base_dir:  /home/saishruti/Research1/Shreyank_20_credit/DataGen
   reports_dir: reports
   data_dir:    data
   vis_dir:     qa_visualisations
@@ -17,13 +17,13 @@ output:
   patches_dir: patches          # root for saved 512×512 patch TIFs
 
 pipeline:
-  sample_count: 2        # draw this many tiles from train (set null to use all)
+  sample_count: null        # draw this many tiles from train (set null to use all)
   random_seed: 42
   patch_size: 512         # split each 1024×1024 tile into 512×512 patches (4 per tile)
   val_fraction:  0.15     # carved from sampled train tiles (no val labels exist)
   test_fraction: 0.15     # carved from sampled train tiles
   max_qa_per_image: 22    # 9 categories now — raised from 18
-  visualise: true         # set false to skip QA visualisations (saves time on full runs)
+  visualise: false         # set false to skip QA visualisations (saves time on full runs)
 
 # Actual mask encoding discovered during inspection (1-indexed, NOT 0-indexed)
 class_map:
