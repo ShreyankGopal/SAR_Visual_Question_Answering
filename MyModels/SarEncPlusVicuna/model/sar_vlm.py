@@ -291,6 +291,8 @@ class SARVLM(nn.Module):
         hybrid_vicuna = HybridLlamaForCausalLM(config)
         
         # Copy weights from CPU to hybrid_vicuna
+        # copy weights from CPU to hybrid vicuna
+        print("[SARVLM] Copying Vicuna weights to hybrid vicuna...")
         result = hybrid_vicuna.load_state_dict(vicuna_base.state_dict(), strict=True)
         if result.missing_keys or result.unexpected_keys:
             print(f"[SARVLM] WARNING — missing: {result.missing_keys}, "
