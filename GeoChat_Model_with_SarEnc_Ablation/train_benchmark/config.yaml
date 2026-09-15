@@ -1,0 +1,45 @@
+# Ablation Training Configuration
+# This config allows selecting different encoder/projector combinations for ablation studies
+
+# Vision Encoder Options: 'clip', 'sar'
+vision_encoder: 'sar'
+
+# Encoder checkpoint path
+encoder_checkpoint: 'BenchMarks_GeoChat/mars_base_sar_encoder_only.pth'
+
+# Projector Options: 'linear', 'mlp2x_gelu', 'sar_mlp', 'identity'
+# - linear: Single linear layer (GeoChat default)
+# - mlp2x_gelu: 2-layer MLP with GELU
+# - sar_mlp: Custom SAR projector (2-layer MLP for SAR features)
+# - identity: No projection (pass-through)
+projector_type: 'sar_mlp'
+
+# Whether to load pretrained projector weights
+load_pretrained_projector: false
+pretrained_projector_path: null
+
+# Training settings
+batch_size: 16
+learning_rate: 1e-4
+weight_decay: 0.01
+num_epochs: 10
+save_every_batches: 10000  # Save checkpoint every 10k batches
+gradient_accumulation_steps: 1
+max_length: 512
+
+# Data paths
+train_data: '/home/saishruti/Research1/Shreyank_20_credit/DataGen/data/train.jsonl'
+data_root: '/home/saishruti/Research1/Shreyank_20_credit/DataGen'
+
+# Model settings
+llm_path: 'MBZUAI/geochat-7B'
+llm_frozen: true  # Keep LLM frozen
+encoder_frozen: true  # Keep encoder frozen
+
+# Output settings
+output_dir: 'train_benchmark/checkpoints'
+log_file: 'train_benchmark/train.log'
+
+# Validation settings (runs automatically after training)
+validation_data: '/home/saishruti/Research1/Shreyank_20_credit/DataGen/data/val.jsonl'
+run_validation_after_training: true

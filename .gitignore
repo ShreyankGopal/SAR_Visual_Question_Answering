@@ -1,2 +1,128 @@
-DataGen/data/*.jsonl
-DataGen/patches
+# Model weights and checkpoints
+*.pth
+*.pt
+*.ckpt
+*.safetensors
+*.bin
+checkpoints/
+checkpoints_*/
+*.pth.tar
+step_*/
+checkpoints/
+
+# Results and outputs
+results_*.json
+results_*.csv
+summary_*.txt
+*_checkpoint_*.json
+*_results_*.json
+*_results_*.csv
+*_summary_*.txt
+Benchmarking/results_*/
+Benchmarking/summary_*/
+BenchMarks_GeoChat/results_*/
+BenchMarks_GeoChat/summary_*/
+train_benchmark/results_*/
+train_benchmark/summary_*/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+.ipynb_checkpoints/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+*.ipynb
+
+# Logs
+*.log
+logs/
+training.log
+train.log
+val.log
+
+# Data files (optional - uncomment if you don't want to track data)
+# data/
+*.jsonl
+*.json
+*.csv
+*.tif
+*.tiff
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.bmp
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.bak
+*.swp
+
+# OS specific
+.DS_Store
+Thumbs.db
+
+# Model specific
+*.h5
+*.pkl
+*.pickle
+*.joblib
+
+# MLflow
+mlruns/
+*.mlflow
+
+# Weights & Biases
+.wandb/
+
+# TensorBoard
+runs/
+events.out.tfevents.*
+
+# Hugging Face cache
+.cache/
+huggingface/
+
+# Experiment tracking
+experiments/
+trials/
+
+# Config files with sensitive data (optional)
+# config.yaml
+# secrets.yaml
+# .env

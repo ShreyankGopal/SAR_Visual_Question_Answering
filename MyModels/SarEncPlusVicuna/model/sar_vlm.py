@@ -7,7 +7,7 @@ Data flow:
     sar_input  [B, 1, 512, 512]
         ↓  SAREncoder (frozen)
     sar_features  [B, N_visual=256, D_sar=1024]      (f3 of SwinV2-Base, flattened)
-        ↓  SARProjector (trainable MLP)
+        ↓  SARProjector (trainable MLP) => we use SARAblationProjector for running ablation 3
     sar_tokens  [B, N_visual, llm_hidden_size]
         ↓  concatenate with text embeddings
     inputs_embeds  [B, N_visual + N_text, llm_hidden_size]
@@ -15,7 +15,7 @@ Data flow:
     logits / loss
 
 Trainable components:
-    - SARProjector (MLP weights)
+    - SARProjector (MLP weights) => again here we use SARAblationProjector soley for the purpose of ablation 3
     - Vicuna LoRA matrices (q/k/v/o_proj in every attention layer)
 
 Frozen components:
@@ -33,6 +33,7 @@ from torch import nn
 
 from .hybrid_llama import HybridLlamaForCausalLM
 from .sar_projector import SARProjector
+from .sar_ablation_projector import SARAblationProjector
 
 
 # ---------------------------------------------------------------------------
@@ -204,7 +205,7 @@ class SARVLM(nn.Module):
     def __init__(
         self,
         sar_encoder: nn.Module,
-        projector: SARProjector,
+        projector: SARAblationProjector,
         hybrid_vicuna: HybridLlamaForCausalLM,
         lora_r: int = DEFAULT_LORA_R,
         lora_alpha: int = DEFAULT_LORA_ALPHA,
@@ -221,7 +222,10 @@ class SARVLM(nn.Module):
         # wraps the attention projections.  PEFT modifies the linear layers
         # inside the model but does not replace the HybridLlamaModel object
         # itself, so this reference stays valid.
-        self._llama_model_ref = hybrid_vicuna.model  # HybridLlamaModel
+        if hasattr(hybrid_vicuna, "model"):
+            self._llama_model_ref = hybrid_vicuna.model  # HybridLlamaModel
+        else:
+            self._llama_model_ref = hybrid_vicuna  # Direct model reference
 
         if apply_lora:
             hybrid_vicuna = self._apply_lora(
@@ -312,10 +316,10 @@ class SARVLM(nn.Module):
 
         # Projector
         llm_hidden_size = config.hidden_size
-        projector = SARProjector(
+        projector = SARAblationProjector(
             d_sar=d_sar,
             llm_hidden_size=llm_hidden_size,
-            hidden_dim=projector_hidden_dim,
+            hidden_dim=4096,  # Must match the trained architecture
         )
         # Cast projector to match LLM dtype
         projector = projector.to(dtype=torch_dtype)
@@ -428,11 +432,12 @@ class SARVLM(nn.Module):
         N_v = sar_tokens.shape[1]
 
         # 2. Text embeddings from Vicuna's embedding table
-        embed_fn = (
-            self.hybrid_vicuna.get_input_embeddings()
-            if not hasattr(self.hybrid_vicuna, "base_model")
-            else self.hybrid_vicuna.base_model.model.get_input_embeddings()
-        )
+        if hasattr(self.hybrid_vicuna, "base_model") and hasattr(self.hybrid_vicuna.base_model, "model"):
+            # PEFT-wrapped model (LoRA applied)
+            embed_fn = self.hybrid_vicuna.base_model.model.get_input_embeddings()
+        else:
+            # Direct model (no LoRA)
+            embed_fn = self.hybrid_vicuna.get_input_embeddings()
         text_embeds = embed_fn(input_ids)                  # [B, N_t, H]
 
         # 3. Concatenate: [SAR tokens | text tokens]
@@ -508,11 +513,12 @@ class SARVLM(nn.Module):
 
         N_v = sar_tokens.shape[1]
 
-        embed_fn = (
-            self.hybrid_vicuna.get_input_embeddings()
-            if not hasattr(self.hybrid_vicuna, "base_model")
-            else self.hybrid_vicuna.base_model.model.get_input_embeddings()
-        )
+        if hasattr(self.hybrid_vicuna, "base_model") and hasattr(self.hybrid_vicuna.base_model, "model"):
+            # PEFT-wrapped model (LoRA applied)
+            embed_fn = self.hybrid_vicuna.base_model.model.get_input_embeddings()
+        else:
+            # Direct model (no LoRA)
+            embed_fn = self.hybrid_vicuna.get_input_embeddings()
         with torch.no_grad():
             text_embeds = embed_fn(input_ids)
 
@@ -534,6 +540,7 @@ class SARVLM(nn.Module):
             output_ids = self.hybrid_vicuna.generate(
                 inputs_embeds=inputs_embeds,
                 attention_mask=full_mask,
+                num_visual_tokens=N_v,
                 **generate_kwargs,
             )
         finally:

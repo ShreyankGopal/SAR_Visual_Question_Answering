@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import re
+from .sar_projector import SARProjector
 
 
 class IdentityMap(nn.Module):
@@ -37,6 +38,12 @@ def build_vision_projector(config, delay_load=False, **kwargs):
 
     if projector_type == 'linear':
         return nn.Linear(config.mm_hidden_size, config.hidden_size)
+
+    if projector_type == 'sar_mlp':
+        # SAR projector: maps SAR encoder features to LLM embedding space
+        d_sar = getattr(config, 'mm_hidden_size', 1024)  # SAR encoder output dim
+        llm_hidden_size = getattr(config, 'hidden_size', 4096)  # LLM hidden size
+        return SARProjector(d_sar=d_sar, llm_hidden_size=llm_hidden_size)
 
     mlp_gelu_match = re.match(r'^mlp(\d+)x_gelu$', projector_type)
     if mlp_gelu_match:

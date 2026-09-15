@@ -9,7 +9,7 @@ Design principle:
     `create_causal_mask()` so that the leading N_visual positions attend
     bidirectionally to each other while text tokens remain causal.
 
-No site-packages are modified.
+No site-packages are modified
 Weight keys are 100 % identical to lmsys/vicuna-7b-v1.5 — load_state_dict
 with strict=True produces missing_keys=[], unexpected_keys=[].
 """

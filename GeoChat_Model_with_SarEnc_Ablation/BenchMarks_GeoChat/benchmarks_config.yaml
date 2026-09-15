@@ -1,0 +1,56 @@
+# ============================================================
+# benchmarks_config.yaml
+# Configuration for GeoChat ablation benchmarking.
+#
+# Three supported ablation modes (set exactly ONE to true):
+#   baseline     : GeoChat + CLIP ViT  (original model, no SAR encoder)
+#   sar_encoder  : GeoChat + SAR encoder (SwinV2-Base), CLIP projector replaced
+#   sar_projector: GeoChat + SAR encoder + trained MLP projector (Bench2)
+#
+# All weights paths are absolute or relative to the BenchMarks_GeoChat/ directory.
+# ============================================================
+
+# ── Ablation mode ───────────────────────────────────────────
+ablation:
+  baseline:      false   # CLIP ViT, no SAR encoder
+  sar_encoder:   false   # SAR encoder only (Bench 1)
+  sar_projector: true    # SAR encoder + trained MLP projector (Bench 2)
+
+# ── Model weights ───────────────────────────────────────────
+model:
+  geochat_path:        "MBZUAI/geochat-7B"          # HuggingFace hub path or local dir
+  sar_encoder_weights: "mars_base_sar_encoder_only.pth"  # relative to BenchMarks_GeoChat/
+  sar_projector_weights: "final_projector_weights_for_Bench2.pth"  # relative to BenchMarks_GeoChat/
+  device: "cuda"
+
+# ── Data paths ──────────────────────────────────────────────
+data:
+  data_dir:     "/home/saishruti/Research1/Shreyank_20_credit/DataGen/data"
+  patches_root: "/home/saishruti/Research1/Shreyank_20_credit/DataGen"
+
+# ── Prompt strategy ─────────────────────────────────────────
+prompts:
+  land_cover_classes:
+    - "Bareland"
+    - "Rangeland"
+    - "Developed Space"
+    - "Road"
+    - "Tree"
+    - "Water"
+    - "Agriculture Land"
+    - "Building"
+  one_word_suffix: " Answer in one word only."
+
+# ── Inference settings ──────────────────────────────────────
+inference:
+  max_new_tokens: 64
+  max_length:     2000
+  conv_template:  "llava_v1"
+
+# ── Output ──────────────────────────────────────────────────
+output:
+  save_dir: null   # null = same directory as this config file (BenchMarks_GeoChat/)
+
+# ── Debug ───────────────────────────────────────────────────
+debug:
+  verbose: false   # set true to print per-sample debug info
