@@ -292,11 +292,7 @@ class SARVLM(nn.Module):
         )
         
         # Build HybridLlamaForCausalLM
-        # hybrid_vicuna = HybridLlamaForCausalLM(config).to(dtype=torch_dtype)
-        prev_default_dtype = torch.get_default_dtype()
-        torch.set_default_dtype(torch_dtype)
         hybrid_vicuna = HybridLlamaForCausalLM(config)
-        torch.set_default_dtype(prev_default_dtype)
         
         # Copy weights from CPU to hybrid_vicuna
         # copy weights from CPU to hybrid vicuna
