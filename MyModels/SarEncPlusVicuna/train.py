@@ -1,21 +1,37 @@
-
 """
 train.py
 --------
 Main training loop for SAR-VLM.
 
 Checkpointing:
-    - Save every 20 training batches.
-    - Every 1000 global training batches:
-        1. Save checkpoint first.
-        2. Run validation.
-        3. Generate 2 validation samples.
-        4. Save validation results to the log.
-            
-This ensures that a validation/sampling failure never causes
-the latest trained model weights to be lost.
+    - Save every 20 training batches (CHECKPOINT_EVERY), and once more
+      at the end of every epoch.
+
+Validation:
+    - Runs once, after all epochs finish: full validation pass + 2
+      generated samples, logged. (Previously ran every 1000 batches
+      during training -- moved to only run at the end since the
+      periodic version was slow.)
+
+Precision:
+    - Model weights loaded in FP32. Forward/backward run under the
+      default (FP16) torch.cuda.amp.autocast, with GradScaler handling
+      loss scaling -- this matches the original, stable numeric setup
+      (train2.py), not the later bf16-autocast/no-scaler experiment.
+
+Config:
+    - Config file is selectable via --config/-c (defaults to
+      train_config.yaml), so different experiments can point at
+      different YAML files without editing this script.
+
+Resuming:
+    - Set training.checkpoint_path in the config to the checkpoint
+      directory you want to resume from. Then pass --load-checkpoint
+      on the command line to actually use it; without that flag, the
+      path in the config is ignored and training starts from scratch.
 """
 
+import argparse
 import os
 import yaml
 import torch
@@ -25,7 +41,7 @@ from tqdm import tqdm
 import time
 
 from model.sar_vlm import SARVLM, build_sar_encoder
-from dataset import SARVLMDataset, collate_fn
+from dataset import SARVLMDataset, collate_fn, count_jsonl_records
 
 
 def load_config(config_path: str):
@@ -92,6 +108,68 @@ def save_checkpoint(vlm, save_dir, global_step, log_file=None):
     )
 
     return checkpoint_dir
+
+
+def load_checkpoint_into_vlm(vlm, checkpoint_path, device, log_file=None):
+    """
+    Load a checkpoint saved by save_checkpoint() into an already-built
+    SARVLM: the LoRA adapter weights and the SAR -> Vicuna projector.
+
+    ASSUMPTION: vlm.hybrid_vicuna is a PEFT-wrapped model using the
+    default adapter name "default" (PEFT's default when none is given,
+    which is what save_checkpoint's `vlm.hybrid_vicuna.save_pretrained(...)`
+    saves under). If SARVLM wraps LoRA some other way, this call may need
+    adjusting -- this hasn't been verified against model/sar_vlm.py.
+
+    Returns the global_step recorded in the checkpoint's
+    training_state.pth (0 if that file isn't present), so the caller can
+    resume the step counter for checkpoint-naming continuity.
+    """
+
+    log(f"Loading checkpoint from: {checkpoint_path}", log_file)
+
+    if not os.path.isdir(checkpoint_path):
+        raise FileNotFoundError(
+            f"checkpoint_path does not exist or is not a directory: "
+            f"{checkpoint_path}"
+        )
+
+    # LoRA adapter weights.
+    vlm.hybrid_vicuna.load_adapter(
+        checkpoint_path,
+        adapter_name="default",
+        is_trainable=True,
+    )
+    vlm.hybrid_vicuna.set_adapter("default")
+
+    # SAR -> Vicuna projector.
+    projector_path = os.path.join(checkpoint_path, "projector.pth")
+
+    if os.path.exists(projector_path):
+        vlm.projector.load_state_dict(
+            torch.load(projector_path, map_location=device)
+        )
+    else:
+        log(
+            f"WARNING: no projector.pth found at {projector_path} -- "
+            f"projector weights were NOT restored from the checkpoint.",
+            log_file
+        )
+
+    # Resume the global step counter, if it was recorded.
+    state_path = os.path.join(checkpoint_path, "training_state.pth")
+    start_step = 0
+
+    if os.path.exists(state_path):
+        state = torch.load(state_path, map_location="cpu")
+        start_step = state.get("global_step", 0)
+
+    log(
+        f"Checkpoint loaded. Resuming global_step counter from {start_step}.",
+        log_file
+    )
+
+    return start_step
 
 
 @torch.no_grad()
@@ -244,9 +322,85 @@ def generate_samples(
             )
 
 
+def build_dataset(c_data, split: str, tokenizer, max_length):
+    """
+    Build a (possibly multi-source) SARVLMDataset for the given split
+    ("train" or "val").
+
+    If a second dataset is configured (data.train_jsonl_2 / val_jsonl_2),
+    it is randomly subsampled down to the record count of the primary
+    dataset for that split, then concatenated with it. This keeps the two
+    datasets balanced 1:1 rather than letting the size of the second
+    dataset dominate.
+    """
+
+    primary_key = f"{split}_jsonl"
+    secondary_key = f"{split}_jsonl_2"
+    secondary_root_key = "data_root_2"
+
+    primary_path = c_data[primary_key]
+    primary_root = c_data["data_root"]
+
+    sources = [
+        {"jsonl_path": primary_path, "data_root": primary_root, "sample_size": None}
+    ]
+
+    secondary_path = c_data.get(secondary_key)
+
+    if secondary_path:
+        base_count = count_jsonl_records(primary_path)
+        secondary_root = c_data.get(secondary_root_key, primary_root)
+
+        sources.append(
+            {
+                "jsonl_path": secondary_path,
+                "data_root": secondary_root,
+                "sample_size": base_count,
+            }
+        )
+
+    return SARVLMDataset(
+        sources=sources,
+        tokenizer=tokenizer,
+        max_length=max_length,
+        seed=c_data.get("sample_seed", 42),
+    )
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Train SAR-VLM using a given config file."
+    )
+    parser.add_argument(
+        "--config",
+        "-c",
+        type=str,
+        default="train_config.yaml",
+        help=(
+            "Path to the training config YAML file "
+            "(default: train_config.yaml in the current directory). "
+            "Lets you run multiple experiments by pointing each run at "
+            "a different config, e.g. --config train_config_v2.yaml"
+        ),
+    )
+    parser.add_argument(
+        "--load-checkpoint",
+        action="store_true",
+        help=(
+            "Resume from the checkpoint directory given by "
+            "training.checkpoint_path in the config file. The path itself "
+            "always comes from the config -- this flag only controls "
+            "whether it gets used. Omit this flag to start from scratch."
+        ),
+    )
+    return parser.parse_args()
+
+
 def main():
 
-    config = load_config("train_config.yaml")
+    args = parse_args()
+
+    config = load_config(args.config)
 
     # ---------------------------------------------------------
     # Config
@@ -319,6 +473,32 @@ def main():
     vlm = vlm.to(device)
 
     # ---------------------------------------------------------
+    # Optionally resume from a saved checkpoint
+    # ---------------------------------------------------------
+    #
+    # --load-checkpoint (CLI flag) turns this on or off; the actual path
+    # always comes from training.checkpoint_path in the config file.
+
+    global_step = 0
+
+    if args.load_checkpoint:
+
+        checkpoint_path = c_train.get("checkpoint_path")
+
+        if not checkpoint_path:
+            raise ValueError(
+                "--load-checkpoint was passed but training.checkpoint_path "
+                "is empty in the config -- set it to a checkpoint directory."
+            )
+
+        global_step = load_checkpoint_into_vlm(
+            vlm=vlm,
+            checkpoint_path=checkpoint_path,
+            device=device,
+            log_file=c_train["log_file"]
+        )
+
+    # ---------------------------------------------------------
     # Dataset
     # ---------------------------------------------------------
 
@@ -327,18 +507,18 @@ def main():
         c_train["log_file"]
     )
 
-    train_dataset = SARVLMDataset(
-        c_data["train_jsonl"],
-        c_data["data_root"],
-        tokenizer,
-        max_length=c_train["max_length"]
+    train_dataset = build_dataset(
+        c_data, "train", tokenizer, c_train["max_length"]
     )
 
-    val_dataset = SARVLMDataset(
-        c_data["val_jsonl"],
-        c_data["data_root"],
-        tokenizer,
-        max_length=c_train["max_length"]
+    val_dataset = build_dataset(
+        c_data, "val", tokenizer, c_train["max_length"]
+    )
+
+    log(
+        f"Train dataset size: {len(train_dataset)} | "
+        f"Val dataset size: {len(val_dataset)}",
+        c_train["log_file"]
     )
 
     train_loader = DataLoader(
@@ -388,11 +568,7 @@ def main():
     ]
 
     CHECKPOINT_EVERY = 20
-    EVAL_EVERY = 1000
     NUM_SAMPLES = 2
-
-    # Global batch counter.
-    global_step = 0
 
     # ---------------------------------------------------------
     # Training
@@ -536,95 +712,12 @@ def main():
                         c_train["log_file"]
                     )
 
-            # =================================================
-            # VALIDATE + SAMPLE EVERY 1000 BATCHES
-            # =================================================
-
-            if global_step % EVAL_EVERY == 0:
-
-                log(
-                    f"========== EVALUATION AT "
-                    f"STEP {global_step} ==========",
-                    c_train["log_file"]
-                )
-
-                # ---------------------------------------------
-                # 1. Save AGAIN before evaluation
-                # ---------------------------------------------
-
-                # This is redundant with the every-20 save,
-                # but intentionally done here for safety.
-                try:
-
-                    save_checkpoint(
-                        vlm=vlm,
-                        save_dir=c_train["save_dir"],
-                        global_step=global_step,
-                        log_file=c_train["log_file"]
-                    )
-
-                except Exception as e:
-
-                    log(
-                        f"Pre-evaluation checkpoint failed: "
-                        f"{type(e).__name__}: {e}",
-                        c_train["log_file"]
-                    )
-
-                # ---------------------------------------------
-                # 2. Validation
-                # ---------------------------------------------
-
-                try:
-
-                    run_validation(
-                        vlm=vlm,
-                        val_loader=val_loader,
-                        device=device,
-                        log_file=c_train["log_file"]
-                    )
-
-                except Exception as e:
-
-                    log(
-                        f"VALIDATION FAILED at step "
-                        f"{global_step}: "
-                        f"{type(e).__name__}: {e}",
-                        c_train["log_file"]
-                    )
-
-                # ---------------------------------------------
-                # 3. Sampling
-                # ---------------------------------------------
-
-                try:
-
-                    generate_samples(
-                        vlm=vlm,
-                        val_dataset=val_dataset,
-                        tokenizer=tokenizer,
-                        device=device,
-                        num_samples=NUM_SAMPLES,
-                        log_file=c_train["log_file"]
-                    )
-
-                except Exception as e:
-
-                    log(
-                        f"SAMPLING FAILED at step "
-                        f"{global_step}: "
-                        f"{type(e).__name__}: {e}",
-                        c_train["log_file"]
-                    )
-
-                # Return to training mode.
-                vlm.train()
-
-                log(
-                    f"========== RESUMING TRAINING "
-                    f"AT STEP {global_step} ==========",
-                    c_train["log_file"]
-                )
+            # NOTE: validation + sampling used to run here every
+            # EVAL_EVERY batches. That's been moved to run once, after
+            # all epochs finish (see below main training loop) since
+            # running a full validation pass this often was slow.
+            # Checkpointing above is untouched and still happens every
+            # CHECKPOINT_EVERY batches during training.
 
         # -----------------------------------------------------
         # Epoch statistics
@@ -662,7 +755,56 @@ def main():
                 c_train["log_file"]
             )
 
+    # ---------------------------------------------------------
+    # Final validation + sampling (all epochs complete)
+    # ---------------------------------------------------------
+    #
+    # Moved here from inside the training loop so it runs exactly once,
+    # after all training is done, instead of every EVAL_EVERY batches --
+    # the periodic mid-training evaluation was taking a lot of time.
+
+    log(
+        "========== FINAL EVALUATION (all epochs complete) ==========",
+        c_train["log_file"]
+    )
+
+    try:
+
+        run_validation(
+            vlm=vlm,
+            val_loader=val_loader,
+            device=device,
+            log_file=c_train["log_file"]
+        )
+
+    except Exception as e:
+
+        log(
+            f"FINAL VALIDATION FAILED: {type(e).__name__}: {e}",
+            c_train["log_file"]
+        )
+
+    try:
+
+        generate_samples(
+            vlm=vlm,
+            val_dataset=val_dataset,
+            tokenizer=tokenizer,
+            device=device,
+            num_samples=NUM_SAMPLES,
+            log_file=c_train["log_file"]
+        )
+
+    except Exception as e:
+
+        log(
+            f"FINAL SAMPLING FAILED: {type(e).__name__}: {e}",
+            c_train["log_file"]
+        )
+
+    # No extra checkpoint save here -- the end-of-epoch save above for
+    # the final epoch already captured the model at this global_step.
+
 
 if __name__ == "__main__":
     main()
-
