@@ -1,0 +1,33 @@
+# SAR-VLM (SarEncPlusVicuna) -- dependencies
+#
+# Install torch separately FIRST, matching your server's CUDA version
+# (check `nvidia-smi` for the driver's CUDA version, then use the
+# selector at https://pytorch.org/get-started/locally/), e.g.:
+#   pip install torch --index-url https://download.pytorch.org/whl/cu121
+# Then install everything below.
+
+# Core ML / training
+transformers==4.57.6  # hybrid_llama.py is a verbatim copy of this exact version's LlamaModel.forward
+peft>=0.10
+accelerate>=0.28       # required by from_pretrained(..., low_cpu_mem_usage=True)
+sentencepiece>=0.1.99  # required by the Vicuna/LLaMA tokenizer (use_fast=False)
+protobuf>=3.20  # required for the slow Vicuna/LLaMA tokenizer's protobuf-based .model decoding
+
+# SAR encoder backbone (SwinV2-Base)
+timm>=0.9.12
+
+# Data / config
+numpy
+PyYAML
+tifffile
+Pillow
+
+# Progress bars
+tqdm
+
+# Benchmarking metrics (Benchmarking/run_benchmark*.py, val.py)
+nltk
+rouge_score
+
+# Tests
+pytest

@@ -11,9 +11,9 @@ SarEncPlusVicuna/
 │   ├── sar_projector.py     # Standard projector
 │   ├── sar_ablation_projector.py  # Ablation-specific projector
 │   └── hybrid_llama.py      # Hybrid Llama with bidirectional visual attention
-├── dataset.py               # PyTorch dataset for SAR-VLM training
-├── train.py                 # Main training script (identical to train_benchmark.py)
-├── train_benchmark.py       # Training script (same as train.py)
+├── dataset.py               # PyTorch dataset for SAR-VLM training (multi-source, TIFF/JPEG/PNG/BMP)
+├── train.py                 # Main training script (--config/--load-checkpoint flags; no longer identical to train_benchmark.py)
+├── train_benchmark.py       # Training script (has NOT been kept in sync with train.py's recent changes)
 ├── train_config.yaml         # Training configuration
 ├── val.py                   # Validation script
 ├── Benchmarking/            # Benchmarking and evaluation
@@ -27,6 +27,9 @@ SarEncPlusVicuna/
 ```bash
 # Training
 python train.py --config train_config.yaml
+
+# Resume training from a checkpoint (set training.checkpoint_path in the config first)
+python train.py --config train_config.yaml --load-checkpoint
 
 # Validation
 python val.py --config train_config.yaml
@@ -44,6 +47,12 @@ data:
   train_jsonl: "path/to/train.jsonl"
   val_jsonl: "path/to/val.jsonl"
   data_root: "path/to/data/root"
+  # Optional second dataset, subsampled to match the primary dataset's
+  # record count and concatenated in 1:1. Leave blank to disable.
+  train_jsonl_2: ""
+  val_jsonl_2: ""
+  data_root_2: ""
+  sample_seed: 42
 
 model:
   vicuna_path: "lmsys/vicuna-7b-v1.5"
@@ -66,6 +75,8 @@ training:
   max_length: 512
   save_dir: "path/to/checkpoints"
   log_file: "path/to/training.log"
+  # Checkpoint dir to resume from (only used with --load-checkpoint)
+  checkpoint_path: ""
 ```
 
 ## Adding New Components
@@ -229,7 +240,7 @@ if config['training'].get('use_scheduler', False):
 
 ### train.py vs train_benchmark.py
 
-Both files are **identical** (they have the same content and file size). They serve the same purpose - main training for the SAR-VLM model. You can use either one; the naming difference might be for different experimental setups but the functionality is the same.
+These are **no longer identical**. `train.py` has since picked up multi-dataset mixing, `--config`/`-c` and `--load-checkpoint` CLI flags, and end-of-training-only validation (see below); `train_benchmark.py` has not been updated to match. Use `train.py` unless you specifically need the older behavior.
 
 ### Key Training Functions
 
