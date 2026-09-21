@@ -32,6 +32,7 @@ Resuming:
 """
 
 import argparse
+import functools
 import os
 import yaml
 import torch
@@ -525,7 +526,7 @@ def main():
         train_dataset,
         batch_size=c_train["micro_batch_size"],
         shuffle=True,
-        collate_fn=lambda b: collate_fn(b, tokenizer),
+        collate_fn=functools.partial(collate_fn, tokenizer=tokenizer),
         num_workers=4,
         pin_memory=True
     )
@@ -534,7 +535,7 @@ def main():
         val_dataset,
         batch_size=c_train["micro_batch_size"],
         shuffle=False,
-        collate_fn=lambda b: collate_fn(b, tokenizer),
+        collate_fn=functools.partial(collate_fn, tokenizer=tokenizer),
         num_workers=4,
         pin_memory=True
     )
