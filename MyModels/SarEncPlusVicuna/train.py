@@ -9,15 +9,12 @@ Checkpointing:
 
 Validation:
     - Runs once, after all epochs finish: full validation pass + 2
-      generated samples, logged. (Previously ran every 1000 batches
-      during training -- moved to only run at the end since the
-      periodic version was slow.)
+      generated samples, logged.
 
 Precision:
     - Model weights loaded in FP32. Forward/backward run under the
       default (FP16) torch.cuda.amp.autocast, with GradScaler handling
-      loss scaling -- this matches the original, stable numeric setup
-      (train2.py), not the later bf16-autocast/no-scaler experiment.
+      loss scaling.
 
 Config:
     - Config file is selectable via --config/-c (defaults to
@@ -45,12 +42,16 @@ from model.sar_vlm import SARVLM, build_sar_encoder
 from dataset import SARVLMDataset, collate_fn, count_jsonl_records
 
 
+"""Helper functions"""
 def load_config(config_path: str):
     with open(config_path, "r") as f:
+        """1. Opening a config file and returning the same. File input"""
         return yaml.safe_load(f)
 
 
 def log(msg: str, log_file: str = None):
+    """2. Prints a message on the terminal or writes it to a log file. To ensure the multiple intermediate training 
+    steps are going on. File output """
     out = f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] {msg}"
     print(out)
 
@@ -61,12 +62,13 @@ def log(msg: str, log_file: str = None):
 
 def save_checkpoint(vlm, save_dir, global_step, log_file=None):
     """
-    Save LoRA adapters and projector.
+    3. Save LoRA adapters (of hybrid vicuna - save_pretrained method) and projector (separately saved).
+    Saves global step as well so that later on it can be found to continue from the same step
 
     This function is intentionally independent of validation/sampling,
     so a failure during validation cannot prevent checkpoint creation.
     """
-
+    #Making directory for checkpoint
     checkpoint_dir = os.path.join(
         save_dir,
         f"step_{global_step}"
@@ -113,16 +115,15 @@ def save_checkpoint(vlm, save_dir, global_step, log_file=None):
 
 def load_checkpoint_into_vlm(vlm, checkpoint_path, device, log_file=None):
     """
-    Load a checkpoint saved by save_checkpoint() into an already-built
-    SARVLM: the LoRA adapter weights and the SAR -> Vicuna projector.
+    4. (a) Load a checkpoint saved by save_checkpoint() into an already-built
+    SARVLM: the LoRA adapter weights and the (b) SAR -> Vicuna projector.
 
-    ASSUMPTION: vlm.hybrid_vicuna is a PEFT-wrapped model using the
+    vlm.hybrid_vicuna is a PEFT-wrapped model using the
     default adapter name "default" (PEFT's default when none is given,
     which is what save_checkpoint's `vlm.hybrid_vicuna.save_pretrained(...)`
-    saves under). If SARVLM wraps LoRA some other way, this call may need
-    adjusting -- this hasn't been verified against model/sar_vlm.py.
+    saves under).
 
-    Returns the global_step recorded in the checkpoint's
+    Returns the (c) global_step recorded in the checkpoint's
     training_state.pth (0 if that file isn't present), so the caller can
     resume the step counter for checkpoint-naming continuity.
     """
@@ -135,7 +136,7 @@ def load_checkpoint_into_vlm(vlm, checkpoint_path, device, log_file=None):
             f"{checkpoint_path}"
         )
 
-    # LoRA adapter weights.
+    # LoRA adapter weight - setting adapter is needed incase we are loading multiple adapters with different names.
     vlm.hybrid_vicuna.load_adapter(
         checkpoint_path,
         adapter_name="default",
@@ -171,8 +172,8 @@ def load_checkpoint_into_vlm(vlm, checkpoint_path, device, log_file=None):
     )
 
     return start_step
-
-
+    
+"""Validation functions"""
 @torch.no_grad()
 def run_validation(
     vlm,
@@ -181,7 +182,7 @@ def run_validation(
     log_file=None
 ):
     """
-    Run validation over the complete validation loader.
+    1. Run validation over the complete validation loader. Returns only avg loss.
     """
 
     vlm.eval()
@@ -196,8 +197,10 @@ def run_validation(
 
     for batch in val_pbar:
 
-        # IMPORTANT:
-        # Keep SAR encoder input in FP32.
+        """It keeps the sar input in float32 but amp might act on top of it 
+        Might only be a fix at the input level. torch.amp will operate in mixed precision of fp16 and fp32 
+        So the intermediate outputs will adapt to this mixed precision irrespectibe of thiss dtype being 
+        set."""
         sar_input = batch["sar_input"].to(
             device,
             dtype=torch.float32
@@ -249,7 +252,7 @@ def generate_samples(
     log_file=None
 ):
     """
-    Generate a small number of outputs from the validation set.
+    2. Generate a small number of outputs from the validation set.
 
     Only used periodically so generation does not slow down training.
     """
@@ -288,7 +291,9 @@ def generate_samples(
             prompt_ids = input_ids[
                 prompt_mask
             ].unsqueeze(0).to(device)
-
+            
+            #attend to everythign in the sample - used sometimes non trivially as well when prompts of different 
+            #lengths are passed in the same batch so through padding so that the padded parts are ignored.
             prompt_attention_mask = torch.ones_like(
                 prompt_ids
             ).to(device)
