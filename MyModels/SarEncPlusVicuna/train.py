@@ -42,6 +42,7 @@ from tqdm import tqdm
 
 from model.sar_vlm import SARVLM, build_sar_encoder
 from dataset import SARVLMDataset, collate_fn, count_jsonl_records
+from Loss_functions.Centered_Kernel_Allign import RBFCKALoss
 
 
 def load_config(config_path: str):
@@ -212,6 +213,35 @@ def run_validation(vlm, val_loader, device, log_file=None):
         num_batches += 1
         val_pbar.set_postfix({"loss": f"{loss.item():.4f}"})
 
+        # Access intermediate outputs if hooks are active
+        if intermediate_outputs is not None:
+            encoder_output = intermediate_outputs['encoder_output']
+            penultimate_hidden = intermediate_outputs['penultimate_hidden']
+            final_hidden = intermediate_outputs['final_hidden']
+
+            # Compute CKA loss during validation if enabled
+            if is_CKA and cka_loss_fn is not None:
+                # Pool encoder output: [B, N_visual, d_sar] -> [B, d_sar]
+                encoder_pooled = encoder_output.mean(dim=1)  # [B, d_sar]
+
+                # Pool LLM penultimate layer: [B, N_visual+N_text, hidden_size] -> [B, hidden_size]
+                llm_penultimate_pooled = penultimate_hidden.mean(dim=1)  # [B, hidden_size]
+
+                # Compute CKA loss between encoder and penultimate LLM layer
+                val_cka_loss, val_cka_value = cka_loss_fn(encoder_pooled, llm_penultimate_pooled)
+
+                # Log CKA statistics during validation
+                if num_batches % 10 == 0:
+                    log(
+                        f"Validation batch {num_batches} - CKA value: {val_cka_value.item():.4f}, "
+                        f"CKA loss: {val_cka_loss.item():.4f}",
+                        log_file
+                    )
+
+        # Clear intermediate outputs after validation
+        if intermediate_outputs is not None:
+            intermediate_outputs.clear()
+
     if num_batches == 0:
         return 0.0
 
@@ -234,6 +264,9 @@ def generate_samples(vlm, val_dataset, tokenizer, device, num_samples=2, log_fil
             # Keep SAR input FP32 -- the frozen SAR encoder has FP32 weights.
             sar_input = sample["sar_input"].unsqueeze(0).to(device, dtype=torch.float32)
 
+            # Clear CUDA cache before generation to prevent memory buildup
+            torch.cuda.empty_cache()
+
             input_ids = sample["input_ids"]
             labels = sample["labels"]
 
@@ -255,11 +288,19 @@ def generate_samples(vlm, val_dataset, tokenizer, device, num_samples=2, log_fil
             )
             log(f"Sample {i + 1}: {generated_text.strip()}", log_file)
 
+            # Clean up memory after each sample
+            torch.cuda.empty_cache()
+
         except Exception as e:
             # Don't let one bad sample kill training.
             log(f"Sampling failed for sample {i + 1}: {type(e).__name__}: {e}", log_file)
 
+            # Clean up memory after failed sample
+            torch.cuda.empty_cache()
 
+#####
+# building dataset here
+#####
 def build_dataset(c_data, split: str, tokenizer, max_length):
     """
     Build a SARVLMDataset for the given split ("train"/"val"). If a second
@@ -313,6 +354,22 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     log(f"Starting training on device: {device}", c_train["log_file"])
 
+    # Clear CUDA cache at the very start
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+        log("Initial CUDA cache cleared", c_train["log_file"])
+
+        # Log initial memory state
+        memory_allocated = torch.cuda.memory_allocated(device) / 1024**3
+        memory_reserved = torch.cuda.memory_reserved(device) / 1024**3
+        memory_free = (torch.cuda.get_device_properties(device).total_memory -
+                      torch.cuda.memory_allocated(device)) / 1024**3
+        log(
+            f"Initial GPU Memory - Allocated: {memory_allocated:.2f} GB, "
+            f"Reserved: {memory_reserved:.2f} GB, Free: {memory_free:.2f} GB",
+            c_train["log_file"]
+        )
+
     # ---------------------------------------------------------
     # Tokenizer
     # ---------------------------------------------------------
@@ -330,11 +387,52 @@ def main():
     # ---------------------------------------------------------
     log("Loading SAR Encoder and Hybrid Vicuna Model...", c_train["log_file"])
 
+    # Aggressive CUDA cache clearing before model loading
+    torch.cuda.empty_cache()
+    import gc
+    gc.collect()
+    log("Cleared CUDA cache and garbage collected before model loading", c_train["log_file"])
+
+    # Log memory before loading
+    if torch.cuda.is_available():
+        memory_allocated = torch.cuda.memory_allocated(device) / 1024**3
+        memory_reserved = torch.cuda.memory_reserved(device) / 1024**3
+        log(
+            f"Memory before model loading - Allocated: {memory_allocated:.2f} GB, "
+            f"Reserved: {memory_reserved:.2f} GB",
+            c_train["log_file"]
+        )
+
+    # Load SAR encoder first (smaller, clears cache after)
+    log("Loading SAR encoder first...", c_train["log_file"])
     sar_encoder = build_sar_encoder(
         checkpoint_path=c_model["encoder_checkpoint"],
         freeze=True,
         d_sar=c_model["d_sar"],
     )
+
+    log("SAR encoder loaded", c_train["log_file"])
+
+    # Clear cache after encoder loading to free memory for Vicuna
+    torch.cuda.empty_cache()
+    gc.collect()
+
+    # Log memory after encoder
+    if torch.cuda.is_available():
+        memory_allocated = torch.cuda.memory_allocated(device) / 1024**3
+        memory_reserved = torch.cuda.memory_reserved(device) / 1024**3
+        log(
+            f"Memory after encoder - Allocated: {memory_allocated:.2f} GB, "
+            f"Reserved: {memory_reserved:.2f} GB",
+            c_train["log_file"]
+        )
+
+    # Now load Vicuna with aggressive memory management
+    log("Loading Vicuna model...", c_train["log_file"])
+
+    # Get load_cpu flag from config (default to False if not specified)
+    load_cpu = c_model.get("load_cpu", False)
+    log(f"Vicuna loading mode: {'CPU-first' if load_cpu else 'Direct to GPU'}", c_train["log_file"])
 
     vlm = SARVLM.from_vicuna(
         vicuna_path=c_model["vicuna_path"],
@@ -352,6 +450,36 @@ def main():
     vlm.hybrid_vicuna.gradient_checkpointing_enable()
     vlm = vlm.to(device)
 
+    log("Model moved to device", c_train["log_file"])
+
+    # Aggressive cache clearing after moving model to device
+    torch.cuda.empty_cache()
+    gc.collect()
+
+    # Log memory usage
+    if torch.cuda.is_available():
+        memory_allocated = torch.cuda.memory_allocated(device) / 1024**3
+        memory_reserved = torch.cuda.memory_reserved(device) / 1024**3
+        memory_free = (torch.cuda.get_device_properties(device).total_memory -
+                      torch.cuda.memory_allocated(device)) / 1024**3
+        log(
+            f"GPU Memory after moving - Allocated: {memory_allocated:.2f} GB, "
+            f"Reserved: {memory_reserved:.2f} GB, Free: {memory_free:.2f} GB",
+            c_train["log_file"]
+        )
+
+    # ---------------------------------------------------------
+    # CKA Loss initialization
+    # ---------------------------------------------------------
+
+    cka_loss_fn = None
+    if c_train["is_CKA"]:
+        cka_loss_fn = RBFCKALoss()
+        log(
+            f"CKA loss enabled with lambda={c_train['lambda_CKA']}",
+            c_train["log_file"]
+        )
+
     # ---------------------------------------------------------
     # Resume: locate a checkpoint (unless --no-resume) and restore weights
     # ---------------------------------------------------------
@@ -364,6 +492,9 @@ def main():
 
     if resume_path:
         load_model_weights(vlm, resume_path, device, c_train["log_file"])
+
+        # Clear cache after loading checkpoint
+        torch.cuda.empty_cache()
 
     # ---------------------------------------------------------
     # Dataset
@@ -423,6 +554,57 @@ def main():
     NUM_SAMPLES = 2
 
     # ---------------------------------------------------------
+    # Setup hooks for intermediate outputs
+    # ---------------------------------------------------------
+
+    intermediate_outputs = {}
+    hook_counter = [0]  # Use list to make it mutable in closure
+
+    def encoder_hook(module, input, output):
+        """Capture SAR encoder output"""
+        intermediate_outputs['encoder_output'] = output.detach()
+
+    def penultimate_hook(module, input, output):
+        """Capture penultimate layer hidden states"""
+        # The output is directly the hidden states tensor, not a tuple
+        # It has shape [batch_size, seq_len, hidden_size]
+        hidden_states = output.detach()
+        intermediate_outputs['penultimate_hidden'] = hidden_states
+
+        # Debug: log shape periodically
+        hook_counter[0] += 1
+        if hook_counter[0] % 10 == 0:
+            log(f"Penultimate hook captured shape: {hidden_states.shape}", c_train["log_file"])
+
+    def final_hook(module, input, output):
+        """Capture final layer hidden states"""
+        # The output is directly the hidden states tensor, not a tuple
+        # It has shape [batch_size, seq_len, hidden_size]
+        hidden_states = output.detach()
+        intermediate_outputs['final_hidden'] = hidden_states
+
+        # Debug: log shape periodically
+        if hook_counter[0] % 10 == 0:
+            log(f"Final hook captured shape: {hidden_states.shape}", c_train["log_file"])
+
+    # Register encoder hook
+    encoder_handle = vlm.sar_encoder.register_forward_hook(encoder_hook)
+
+    # Register penultimate layer hook
+    num_layers = vlm._llama_model_ref.config.num_hidden_layers
+    penultimate_layer = vlm._llama_model_ref.layers[num_layers - 2]
+    penultimate_handle = penultimate_layer.register_forward_hook(penultimate_hook)
+
+    # Register final layer hook
+    final_layer = vlm._llama_model_ref.layers[num_layers - 1]
+    final_handle = final_layer.register_forward_hook(final_hook)
+
+    log(
+        "Registered hooks for encoder output, penultimate and final LLM layers",
+        c_train["log_file"]
+    )
+
+    # ---------------------------------------------------------
     # Training
     # ---------------------------------------------------------
     for epoch in range(start_epoch, c_train["epochs"] + 1):
@@ -450,7 +632,7 @@ def main():
                 )
                 loss = outputs.loss / grad_acc_steps
 
-            scaler.scale(loss).backward()
+            scaler.scale(total_loss).backward()
 
             if (step + 1) % grad_acc_steps == 0 or (step + 1) == len(train_loader):
                 scaler.unscale_(optimizer)
