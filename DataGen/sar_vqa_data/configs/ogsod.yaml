@@ -1,0 +1,94 @@
+# configs/ogsod.yaml
+dataset: OGSOD
+adapter: ogsod
+
+data:
+  root:         /mnt/data/shruti/SAR_VQA_Data/OGSOD
+  sar_subdir:   OGSOD-1.0/sar             # optical rgb/ is not used
+  clean_jsonl:  /home/saishruti/Research1/Shreyank_20_credit/DataGen/sar_vqa/output/ogsod/clean.jsonl
+  image_size:   256
+  class_ids:    {0: Bridge, 1: Harbour, 2: Tank}
+  min_box_px:   2                         # drop boxes thinner than this
+  val_fraction: 0.125                     # of train, stratified by classes present
+
+output:
+  base_dir:    /home/saishruti/Research1/Shreyank_20_credit/DataGen/sar_vqa/output/ogsod
+  facts_dir:   intermediate_facts
+  reports_dir: reports
+  data_dir:    data
+
+pipeline:
+  random_seed: 42
+  max_qa_per_image: 22
+  max_per_category: 3
+  model_input_size: 512      # 256 native -> gsd_m 1.5, native_gsd_m 3.0, resample_factor 2.0
+
+classes:
+  Bridge:  {singular: bridge,  plural: bridges}
+  Harbour: {singular: harbour, plural: harbours}
+  Tank:    {singular: tank,    plural: tanks}
+
+native_gsd_m: {OGSOD: 3.0}
+
+grid_regions:
+  top_left:      [0.0000, 0.0000, 0.3333, 0.3333]
+  top_center:    [0.3333, 0.0000, 0.6667, 0.3333]
+  top_right:     [0.6667, 0.0000, 1.0000, 0.3333]
+  middle_left:   [0.0000, 0.3333, 0.3333, 0.6667]
+  center:        [0.3333, 0.3333, 0.6667, 0.6667]
+  middle_right:  [0.6667, 0.3333, 1.0000, 0.6667]
+  bottom_left:   [0.0000, 0.6667, 0.3333, 1.0000]
+  bottom_center: [0.3333, 0.6667, 0.6667, 1.0000]
+  bottom_right:  [0.6667, 0.6667, 1.0000, 1.0000]
+
+categories_per_source:
+  OGSOD: [global_classification, object_classification, object_counting, regional_vqa, comparative_spatial,
+          region_grounding, absolute_size, object_relations, global_quantitative, sar_comparative,
+          sar_observation, sar_bbox_variance]
+
+reference:
+  point_min_sep_px: 6        # tanks are ~7-8 px wide and packed in clusters; 6 px keeps the point inside one tank
+
+grounding:
+  min_size: 0.08
+  max_size: 0.30
+  num_regions: 3
+  referring: unique_class    # "Give the bounding box of the harbour" when exactly one is present
+  class_in_region: 1         # "What type of object is in the region [box]?"
+
+regional:
+  types_per_image: 1         # "Which object types are in the center region?", one random cell per image
+
+sar:
+  bright_percentile: 90
+
+sar_bbox_variance:
+  num_regions: 2
+  min_size: 0.10
+  max_size: 0.35
+  bins: [[0, 1428.8, "Low"], [1428.8, 2430.6, "Medium"], [2430.6, 1.0e+12, "High"]]   # OGSOD tertiles
+
+thresholds:
+  coverage_bins: [[0, 1, "less than 1%"], [1, 2, "about 1–2%"], [2, 5, "about 2–5%"], [5, 20, "about 5–20%"], [20, 101, "more than 20%"]]
+  coverage_per_class: [Harbour]
+  spatial_min_count_diff: {Bridge: 1, Harbour: 1, Tank: 2}   # bridges/harbours are sparse and large, 1 vs 0 is clear
+  sar_min_intensity_diff: 20          # same-class pairs only
+  relation_min_nn2_ratio: 1.2
+  relation_dir_margin_deg: 7.5
+  observation_min_diff: 0.05
+  size_margin_m: 1.5                  # skip sizes within half a native pixel of a bin edge
+  size_bins:                          # from inspect section 7
+    Tank:    {measure: diameter, bins: [[0, 18, "less than 18 m"], [18, 27, "about 18–27 m"], [27, 1.0e+9, "more than 27 m"]]}
+    Harbour: {measure: extent,   bins: [[0, 100, "less than 100 m"], [100, 200, "about 100–200 m"], [200, 400, "about 200–400 m"], [400, 1.0e+9, "more than 400 m"]]}
+
+balance:
+  global_classification: {rule: yes_no}
+  object_classification: {rule: cap_share, share: 0.4}
+  object_counting:       {rule: zero_cap, share: 0.2}
+  regional_vqa:          {rule: yes_no}
+  comparative_spatial:   {rule: ab}
+  region_grounding:      {rule: yes_no}
+  absolute_size:         {rule: cap_share, share: 0.4}
+  global_quantitative:   {rule: cap_share, share: 0.35}
+  sar_comparative:       {rule: ab}
+  sar_observation:       {rule: cap_share, share: 0.5}

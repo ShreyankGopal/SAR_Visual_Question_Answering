@@ -314,7 +314,9 @@ def generate_samples(vlm, val_dataset, tokenizer, device, num_samples=2, log_fil
             # Don't let one bad sample kill training.
             log(f"Sampling failed for sample {i + 1}: {type(e).__name__}: {e}", log_file)
 
-
+#####
+# building dataset here
+#####
 def build_dataset(c_data, split: str, tokenizer, max_length):
     """
     Build a SARVLMDataset for the given split ("train"/"val"). If a second
@@ -392,6 +394,12 @@ def main():
         d_sar=c_model["d_sar"],
     )
 
+    log("SAR encoder loaded", c_train["log_file"])
+
+    # Get load_cpu flag from config (default to False if not specified)
+    load_cpu = c_model.get("load_cpu", False)
+    log(f"Vicuna loading mode: {'CPU-first' if load_cpu else 'Direct to GPU'}", c_train["log_file"])
+
     vlm = SARVLM.from_vicuna(
         vicuna_path=c_model["vicuna_path"],
         sar_encoder=sar_encoder,
@@ -413,6 +421,8 @@ def main():
 
     vlm.hybrid_vicuna.gradient_checkpointing_enable()
     vlm = vlm.to(device)
+
+    log("Model moved to device", c_train["log_file"])
 
     # ---------------------------------------------------------
     # CKA loss initialization (encoder-vs-LLM representation alignment)
