@@ -28,8 +28,9 @@ SarEncPlusVicuna/
 # Training
 python train.py --config train_config.yaml
 
-# Resume training from a checkpoint (set training.checkpoint_path in the config first)
-python train.py --config train_config.yaml --load-checkpoint
+# Resume from checkpoint is automatic (latest step_N under training.save_dir,
+# or training.checkpoint_path if set). Pass --no-resume to start fresh instead.
+python train.py --config train_config.yaml --no-resume
 
 # Validation
 python val.py --config train_config.yaml
@@ -66,6 +67,22 @@ lora:
   dropout: 0.05                   # LoRA dropout
   target_modules: ["q_proj", "k_proj", "v_proj", "o_proj"]
 
+# GeoRoPE: ground-aware 2D rotary adapter over the SAR visual tokens
+# (model/georope_adapter.py). Replaces Vicuna's meaningless 1D sequential
+# RoPE positions for those tokens. On by default; georope_adapter.pth is
+# saved/loaded alongside projector.pth automatically, no extra steps.
+georope:
+  enable: true
+  bottleneck_dim: 256
+  num_heads: 4
+  gcc_alpha: 0.5
+  gfc_hidden_dim: 64
+  zero_init_output: false
+  ref_gsd_m: 0.1   # reference ground distance (meters) for GCC calibration;
+                   # dataset records need a ground_truth_facts.gsd_m (or
+                   # top-level gsd_m) field -- missing it just means G=1
+                   # (no calibration) for that sample.
+
 training:
   epochs: 3
   micro_batch_size: 4
@@ -75,8 +92,14 @@ training:
   max_length: 512
   save_dir: "path/to/checkpoints"
   log_file: "path/to/training.log"
-  # Checkpoint dir to resume from (only used with --load-checkpoint)
+  # Checkpoint dir to auto-resume from (optional -- latest under save_dir is
+  # used if unset)
   checkpoint_path: ""
+  # Optional auxiliary loss aligning the SAR encoder output with Vicuna's
+  # penultimate-layer representation (Loss_functions/Centered_Kernel_Allign.py).
+  # Off by default.
+  is_CKA: false
+  lambda_CKA: 0.01
 ```
 
 ## Adding New Components
