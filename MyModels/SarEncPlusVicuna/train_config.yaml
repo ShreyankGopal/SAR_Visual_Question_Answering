@@ -18,6 +18,18 @@ lora:
   dropout: 0.05
   target_modules: ["q_proj", "k_proj", "v_proj", "o_proj"]
 
+georope:
+  enable: true
+  bottleneck_dim: 256
+  num_heads: 4
+  gcc_alpha: 0.5
+  gfc_hidden_dim: 64
+  zero_init_output: false
+  # Reference ground distance (meters) GCC calibrates every sample against.
+  # Set to the finest gsd_m across your training mix (0.1 matches the
+  # SIVED/FARAD records seen so far) -- adjust if a finer source is added.
+  ref_gsd_m: 0.1
+
 training:
   epochs: 3
   # Effective batch size = micro_batch_size * gradient_accumulation_steps
@@ -29,3 +41,9 @@ training:
   max_length: 512 # Max text sequence length
   save_dir: "/home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/benchmarks"
   log_file: "/home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/training.log"
+  # CKA (Centered Kernel Alignment) auxiliary loss, aligning the SAR
+  # encoder's output with the LLM's penultimate-layer representation.
+  # Off by default -- flip on deliberately, don't let a pull silently
+  # change training behavior.
+  is_CKA: false
+  lambda_CKA: 0.01

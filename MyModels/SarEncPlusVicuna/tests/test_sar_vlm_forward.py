@@ -30,6 +30,7 @@ from transformers import LlamaConfig
 from model.hybrid_llama import HybridLlamaForCausalLM
 from model.sar_projector import SARProjector
 from model.sar_vlm import SARVLM, SAREncoderPlaceholder
+from model.georope_adapter import GeoRoPEVisualAdapter
 
 
 # ---------------------------------------------------------------------------
@@ -76,6 +77,34 @@ def sarvlm(tiny_config):
         lora_dropout=0.0,
         lora_target_modules=["q_proj", "k_proj", "v_proj", "o_proj"],
         apply_lora=True,
+    )
+    return vlm
+
+
+@pytest.fixture(scope="module")
+def sarvlm_with_georope(tiny_config):
+    """Same tiny SARVLM as `sarvlm`, but with the GeoRoPE adapter wired in."""
+    encoder = SAREncoderPlaceholder(d_sar=D_SAR, n_visual=N_VISUAL)
+    projector = SARProjector(d_sar=D_SAR, llm_hidden_size=HIDDEN_SIZE)
+    hybrid = HybridLlamaForCausalLM(tiny_config)
+    georope_adapter = GeoRoPEVisualAdapter(
+        llm_hidden_size=HIDDEN_SIZE,
+        n_visual=N_VISUAL,  # 16 -> 4x4 grid
+        bottleneck_dim=16,
+        num_heads=2,        # head_dim=8, num_bands=2
+        gfc_hidden_dim=8,
+    )
+
+    vlm = SARVLM(
+        sar_encoder=encoder,
+        projector=projector,
+        hybrid_vicuna=hybrid,
+        lora_r=4,
+        lora_alpha=8,
+        lora_dropout=0.0,
+        lora_target_modules=["q_proj", "k_proj", "v_proj", "o_proj"],
+        apply_lora=True,
+        georope_adapter=georope_adapter,
     )
     return vlm
 
@@ -257,3 +286,70 @@ class TestGradients:
                 f"LoRA parameter '{name}' requires_grad=True but grad is None after backward."
             )
         print(f"\n[PASS] LoRA: {len(lora_params)} trainable matrices, all have gradients ✓")
+
+
+# ---------------------------------------------------------------------------
+# TEST 6 — SARVLM WITH GEOROPE ADAPTER WIRED IN
+# ---------------------------------------------------------------------------
+
+class TestSARVLMWithGeoRoPE:
+    """
+    Confirms the GeoRoPE adapter doesn't break SARVLM's existing forward/
+    loss/gradient-freezing contract, and that it's itself trainable.
+    """
+
+    def test_logits_shape_unchanged(self, sarvlm_with_georope):
+        sar_input = torch.zeros(B, 1, 512, 512)
+        input_ids = torch.randint(0, VOCAB_SIZE, (B, N_TEXT))
+        attention_mask = torch.ones(B, N_TEXT, dtype=torch.long)
+
+        out = sarvlm_with_georope(sar_input, input_ids, attention_mask)
+        assert out.logits.shape == (B, N_VISUAL + N_TEXT, VOCAB_SIZE)
+
+    def test_loss_computable(self, sarvlm_with_georope):
+        sar_input = torch.zeros(B, 1, 512, 512)
+        input_ids = torch.randint(0, VOCAB_SIZE, (B, N_TEXT))
+        labels = torch.randint(0, VOCAB_SIZE, (B, N_TEXT))
+
+        out = sarvlm_with_georope(sar_input, input_ids, labels=labels)
+        assert out.loss is not None
+        assert not torch.isnan(out.loss)
+        assert not torch.isinf(out.loss)
+
+    def test_encoder_and_vicuna_base_still_frozen(self, sarvlm_with_georope):
+        sar_input = torch.zeros(B, 1, 512, 512)
+        input_ids = torch.randint(0, VOCAB_SIZE, (B, N_TEXT))
+        labels = torch.randint(0, VOCAB_SIZE, (B, N_TEXT))
+
+        out = sarvlm_with_georope(sar_input, input_ids, labels=labels)
+        out.loss.backward()
+
+        for name, param in sarvlm_with_georope.sar_encoder.named_parameters():
+            assert param.grad is None, f"SAR encoder '{name}' should be frozen"
+
+        frozen_vicuna = [
+            p for n, p in sarvlm_with_georope.hybrid_vicuna.named_parameters()
+            if not p.requires_grad
+        ]
+        assert len(frozen_vicuna) > 0
+        for p in frozen_vicuna:
+            assert p.grad is None
+
+        for p in sarvlm_with_georope.parameters():
+            if p.grad is not None:
+                p.grad = None
+
+    def test_georope_adapter_has_gradients(self, sarvlm_with_georope):
+        sar_input = torch.zeros(B, 1, 512, 512)
+        input_ids = torch.randint(0, VOCAB_SIZE, (B, N_TEXT))
+        labels = torch.randint(0, VOCAB_SIZE, (B, N_TEXT))
+
+        out = sarvlm_with_georope(sar_input, input_ids, labels=labels)
+        out.loss.backward()
+
+        for name, param in sarvlm_with_georope.georope_adapter.named_parameters():
+            assert param.grad is not None, f"GeoRoPE adapter param '{name}' got no gradient"
+
+        for p in sarvlm_with_georope.parameters():
+            if p.grad is not None:
+                p.grad = None

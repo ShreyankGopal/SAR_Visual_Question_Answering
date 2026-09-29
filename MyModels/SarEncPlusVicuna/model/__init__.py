@@ -9,6 +9,7 @@ Public exports:
     SARVLM                   — full model wrapper (encoder + projector + LLM)
     SAREncoderPlaceholder    — offline test stub mimicking the real MaRS encoder
     build_sar_encoder        — factory to load real MaRS SwinV2 checkpoint
+    GeoRoPEVisualAdapter     — ground-aware 2D rotary adapter over visual tokens
 """
 
 from .hybrid_llama import (
@@ -17,6 +18,7 @@ from .hybrid_llama import (
     HybridLlamaForCausalLM,
 )
 from .sar_projector import SARProjector
+from .georope_adapter import GeoRoPEVisualAdapter
 from .sar_vlm import SARVLM, SAREncoderPlaceholder, build_sar_encoder
 
 __all__ = [
@@ -27,4 +29,5 @@ __all__ = [
     "SARVLM",
     "SAREncoderPlaceholder",
     "build_sar_encoder",
+    "GeoRoPEVisualAdapter",
 ]

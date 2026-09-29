@@ -139,7 +139,16 @@ def load_checkpoint(vlm, checkpoint_path, device, log_file=None):
     # Load SAR -> Vicuna projector
     projector_path = os.path.join(checkpoint_path, "projector.pth")
     vlm.projector.load_state_dict(torch.load(projector_path, map_location=device))
-    
+
+    # Load GeoRoPE adapter, if this model has one and the checkpoint has it
+    if vlm.georope_adapter is not None:
+        georope_path = os.path.join(checkpoint_path, "georope_adapter.pth")
+        if os.path.exists(georope_path):
+            vlm.georope_adapter.load_state_dict(torch.load(georope_path, map_location=device))
+        else:
+            log(f"WARNING: no georope_adapter.pth found at {georope_path} -- "
+                f"GeoRoPE adapter weights were NOT restored.", log_file)
+
     # Load training state
     training_state_path = os.path.join(checkpoint_path, "training_state.pth")
     if os.path.exists(training_state_path):

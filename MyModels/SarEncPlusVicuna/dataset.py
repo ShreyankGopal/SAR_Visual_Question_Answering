@@ -91,6 +91,7 @@ class SARVLMDataset(Dataset):
         max_length: int = 512,
         sources: list = None,
         seed: int = 42,
+        target_size: tuple = (512, 512),
     ):
         """
         Either pass (jsonl_path, data_root) for a single-source dataset
@@ -101,10 +102,19 @@ class SARVLMDataset(Dataset):
         (seeded, so runs are reproducible) before being concatenated in.
         Image paths are resolved against each record's own data_root, so
         sources with different data_roots can be mixed safely.
+
+        target_size: spatial size every image is resized to (if it isn't
+            already that size) before being handed to the SAR encoder,
+            which requires exactly 512x512 input. Most images are already
+            saved at this size (or were patched to it), so this is a
+            correctness safety net, not the main resizing path -- gsd_m in
+            the JSONL is computed assuming the final image is target_size,
+            so no further ground-distance adjustment is needed here.
         """
         self.tokenizer = tokenizer
         self.max_length = max_length
- 
+        self.target_size = tuple(target_size)
+
         if sources is None:
             if jsonl_path is None or data_root is None:
                 raise ValueError(
@@ -114,44 +124,23 @@ class SARVLMDataset(Dataset):
             sources = [
                 {"jsonl_path": jsonl_path, "data_root": data_root, "sample_size": None}
             ]
- 
+
         rng = random.Random(seed)
- 
+
         # self.records holds (record, data_root, source_idx) tuples so
         # __getitem__ knows which data_root to resolve each record's image
-        # path against, and which source it came from (source 0 is always
-        # the primary/first dataset -- every other source gets resized to
-        # match its spatial size, see target_size below).
+        # path against, and which source it came from.
         self.records = []
- 
+
         for i, src in enumerate(sources):
             recs = load_jsonl_records(src["jsonl_path"])
             sample_size = src.get("sample_size")
- 
+
             if sample_size is not None and sample_size < len(recs):
                 recs = rng.sample(recs, sample_size)
- 
+
             self.records.extend((r, src["data_root"], i) for r in recs)
- 
-        # If there's more than one source, pin the target spatial size to
-        # whatever the first source's own images are, by peeking at its
-        # first record. Every non-primary source gets resized to this size
-        # in __getitem__ so that collate_fn's torch.stack over a batch
-        # never sees mismatched shapes.
-        self.target_size = None
- 
-        if len(sources) > 1 and self.records:
-            primary_record, primary_root, _ = next(
-                r for r in self.records if r[2] == 0
-            )
-            primary_img = load_sar_array(
-                os.path.join(primary_root, primary_record["image"])
-            )
-            # load_sar_array always returns a 2D (H, W) array -- TIFFs are
-            # single-channel as-is, and RGB-like sources have already been
-            # reduced to one channel.
-            self.target_size = tuple(primary_img.shape[-2:])
- 
+
         # We assume Vicuna v1.5 format:
         # USER: <question> ASSISTANT: <answer></s>
         # LAND_COVER_CLASSES = [
@@ -194,17 +183,19 @@ class SARVLMDataset(Dataset):
         # or just leave as is if MaRS encoder handles it. We'll leave as is for now.)
         # img_tensor = img_tensor / 255.0
  
-        # Resize non-primary sources to match the primary dataset's
-        # spatial size, so batches mixing both datasets stack cleanly.
-        if self.target_size is not None and source_idx != 0:
-            current_size = tuple(img_tensor.shape[-2:])
-            if current_size != self.target_size:
-                img_tensor = F.interpolate(
-                    img_tensor.unsqueeze(0),  # -> [1, C, H, W]
-                    size=self.target_size,
-                    mode="bilinear",
-                    align_corners=False,
-                ).squeeze(0)
+        # Resize to target_size (512x512) whenever the on-disk image isn't
+        # already that size, regardless of source. Most images are already
+        # saved at this size (or were patched to it), so this is a
+        # safety net rather than the main path -- and it's what gsd_m in
+        # the JSONL already assumes, so no further adjustment is needed.
+        current_size = tuple(img_tensor.shape[-2:])
+        if current_size != self.target_size:
+            img_tensor = F.interpolate(
+                img_tensor.unsqueeze(0),  # -> [1, C, H, W]
+                size=self.target_size,
+                mode="bilinear",
+                align_corners=False,
+            ).squeeze(0)
  
         # 2. Parse Conversation
         conv = record["conversations"]
@@ -243,22 +234,38 @@ class SARVLMDataset(Dataset):
         if len(input_ids) > self.max_length:
             input_ids = input_ids[:self.max_length]
             labels = labels[:self.max_length]
- 
+
+        # Ground distance per token-grid step (meters), for GeoRoPE's GCC
+        # calibration. Already resample-adjusted upstream in the JSONL
+        # (record's ground_truth_facts.gsd_m accounts for resample_factor
+        # and the fixed 512x512 target size), so no runtime adjustment
+        # needed here -- just read it through. None if absent.
+        ground_truth_facts = record.get("ground_truth_facts", {})
+        gsd_m = ground_truth_facts.get("gsd_m", record.get("gsd_m"))
+
         return {
             "sar_input": img_tensor,
             "input_ids": input_ids,
-            "labels": labels
+            "labels": labels,
+            "gsd_m": gsd_m,
         }
  
-def collate_fn(batch, tokenizer):
+def collate_fn(batch, tokenizer, ref_gsd_m=None):
     """
     Custom collate_fn to pad input_ids and labels to the max length in the batch.
+
+    ref_gsd_m: reference ground distance (meters) for GeoRoPE's GCC
+        calibration. When set, batches a "gsd_ratio" tensor of
+        item["gsd_m"] / ref_gsd_m per sample, falling back to 1.0 (identity)
+        for any sample whose record had no gsd_m. When None (default), no
+        "gsd_ratio" key is added -- backward compatible for callers that
+        haven't wired up a reference GSD.
     """
     sar_inputs = torch.stack([item["sar_input"] for item in batch])
- 
+
     input_ids = [item["input_ids"] for item in batch]
     labels = [item["labels"] for item in batch]
- 
+
     # Pad sequences
     input_ids_padded = torch.nn.utils.rnn.pad_sequence(
         input_ids, batch_first=True, padding_value=tokenizer.pad_token_id
@@ -266,16 +273,27 @@ def collate_fn(batch, tokenizer):
     labels_padded = torch.nn.utils.rnn.pad_sequence(
         labels, batch_first=True, padding_value=-100
     )
- 
+
     # Attention mask (1 for real tokens, 0 for pad tokens)
     attention_mask = input_ids_padded.ne(tokenizer.pad_token_id).long()
- 
-    return {
+
+    result = {
         "sar_input": sar_inputs,
         "input_ids": input_ids_padded,
         "attention_mask": attention_mask,
         "labels": labels_padded
     }
+
+    if ref_gsd_m is not None:
+        result["gsd_ratio"] = torch.tensor(
+            [
+                (item["gsd_m"] / ref_gsd_m) if item.get("gsd_m") is not None else 1.0
+                for item in batch
+            ],
+            dtype=torch.float32,
+        )
+
+    return result
  
 
 # class SARVLMDataset(Dataset):
