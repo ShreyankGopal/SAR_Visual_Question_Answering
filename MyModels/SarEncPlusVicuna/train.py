@@ -386,6 +386,7 @@ def main():
     c_georope = config.get("georope", {})
 
     os.makedirs(c_train["save_dir"], exist_ok=True)
+    shutil.copy(args.config, os.path.join(c_train["save_dir"], os.path.basename(args.config)))
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     log(f"Starting training on device: {device}", c_train["log_file"])
