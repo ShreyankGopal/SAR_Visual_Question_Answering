@@ -33,6 +33,7 @@ import argparse
 import functools
 import os
 import re
+import shutil
 import time
 import yaml
 import torch
@@ -72,12 +73,16 @@ def find_latest_checkpoint(save_dir):
     return os.path.join(save_dir, max(steps)[1]) if steps else None
 
 
-def save_checkpoint(vlm, optimizer, scaler, save_dir, global_step, epoch, log_file=None):
+def save_checkpoint(vlm, optimizer, scaler, save_dir, global_step, epoch, log_file=None, keep_last=2):
     """
     Save LoRA adapters, the projector, optimizer/scaler state, and the
     global_step/epoch counters, so training can resume exactly. Kept
     independent of validation/sampling so a failure there can't block
     checkpointing.
+
+    keep_last: after saving, deletes all but the most recent `keep_last`
+    step_N checkpoint dirs under save_dir, so disk usage doesn't grow
+    unbounded over a long run.
     """
     checkpoint_dir = os.path.join(save_dir, f"step_{global_step}")
     os.makedirs(checkpoint_dir, exist_ok=True)
@@ -102,6 +107,18 @@ def save_checkpoint(vlm, optimizer, scaler, save_dir, global_step, epoch, log_fi
     )
 
     log(f"Checkpoint saved successfully at step {global_step}.", log_file)
+
+    # Prune old checkpoints, keeping only the most recent `keep_last`.
+    steps = []
+    for name in os.listdir(save_dir):
+        match = re.fullmatch(r"step_(\d+)", name)
+        if match and os.path.isdir(os.path.join(save_dir, name)):
+            steps.append((int(match.group(1)), name))
+    steps.sort()
+    for _, name in steps[:-keep_last]:
+        shutil.rmtree(os.path.join(save_dir, name))
+        log(f"Removed old checkpoint: {name}", log_file)
+
     return checkpoint_dir
 
 
