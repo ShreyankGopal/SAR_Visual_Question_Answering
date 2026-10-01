@@ -1,3 +1,4 @@
+#georope + CKA + additional data
 # # train_config.yaml
 # # SAR-VLM Training Configuration
 
@@ -35,19 +36,23 @@
 #Adding sardet100k
  
 data:
-  train_jsonl: "/home/saishruti/Research1/Shreyank_20_credit/DataGen/data/train.jsonl"
-  val_jsonl: "/home/saishruti/Research1/Shreyank_20_credit/DataGen/data/test.jsonl" # ==> edited file
-  data_root: "/home/saishruti/Research1/Shreyank_20_credit/DataGen/" # Prepended to image paths in JSON
- 
-  # Optional second dataset (same record format). If set, it is randomly
-  # subsampled down to the record count of train_jsonl / val_jsonl
-  # respectively, then concatenated in, so the two datasets end up
-  # balanced 1:1 rather than the second one dominating by size.
-  # Fill in the actual paths below (and data_root_2 if its images live
-  # under a different root than data_root).
-  train_jsonl_2: "/home/saishruti/Research1/Datasets/SARLANG1M/SARLANG-1M/sardet100k_train.jsonl" # e.g. "/path/to/other_dataset/train.jsonl"
-  val_jsonl_2: "/home/saishruti/Research1/Datasets/SARLANG1M/SARLANG-1M/sardet100k_test.jsonl"   # e.g. "/path/to/other_dataset/val.jsonl"
-  data_root_2: "/home/saishruti/Research1/Datasets/"   # e.g. "/path/to/other_dataset/" - defaults to data_root if left blank
+  train_jsonl: "/home/saishruti/Research1/Shreyank_20_credit/DataGen/data/train_added.jsonl"
+  val_jsonl: "/home/saishruti/Research1/Shreyank_20_credit/DataGen/data/test_added.jsonl" 
+  data_root: "/home/saishruti/Research1/Shreyank_20_credit/DataGen/" 
+  train_jsonl_2: "/home/saishruti/Research1/Shreyank_20_credit/DataGen/sar_vqa/output/hrsid/data/train.jsonl" 
+  val_jsonl_2: "/home/saishruti/Research1/Shreyank_20_credit/DataGen/sar_vqa/output/hrsid/data/val.jsonl"   
+  data_root_2: "/mnt/data/shruti/SAR_VQA_Data/HRSID/"   
+  train_jsonl_3: "/home/saishruti/Research1/Shreyank_20_credit/DataGen/sar_vqa/output/ogsod/data/train.jsonl"
+  val_jsonl_3: "/home/saishruti/Research1/Shreyank_20_credit/DataGen/sar_vqa/output/ogsod/data/val.jsonl"   
+  data_root_3: "/mnt/data/shruti/SAR_VQA_Data/OGSOD/"   
+  train_jsonl_4: "/home/saishruti/Research1/Shreyank_20_credit/DataGen/sar_vqa/output/sar_aircraft/data/train.jsonl"
+  val_jsonl_4: "/home/saishruti/Research1/Shreyank_20_credit/DataGen/sar_vqa/output/sar_aircraft/data/val.jsonl"   
+  data_root_4: "/home/saishruti/Research1/Shreyank_20_credit/DataGen/sar_vqa/output/sar_aircraft/tiles/"   
+  train_jsonl_5: "/home/saishruti/Research1/Shreyank_20_credit/DataGen/sar_vqa/output/sived/data/train.jsonl"
+  val_jsonl_5: "/home/saishruti/Research1/Shreyank_20_credit/DataGen/sar_vqa/output/sived/data/val.jsonl"   
+  data_root_5: "/mnt/data/shruti/SAR_VQA_Data/SIVED/"   
+  train_sample_size: 50000   # cap on primary train dataset; null/omitted = use all records
+  val_sample_size: null     # same, for the primary val dataset
   sample_seed: 42   # controls which records get sampled from the second dataset
  
 model:
@@ -84,11 +89,11 @@ training:
   learning_rate: 2.0e-5
   weight_decay: 0.0
   max_length: 512 # Max text sequence length
-  save_dir: "/home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/checkpoints/benchmarks"
-  log_file: "/home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/training.log"
+  save_dir: "/home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/GeoRoPE_CKA_Data/checkpoints/"
+  log_file: "/home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/GeoRoPE_CKA_Data/training.log"
   # CKA (Centered Kernel Alignment) auxiliary loss, aligning the SAR
   # encoder's output with the LLM's penultimate-layer representation.
   # Off by default -- flip on deliberately, don't let a pull silently
   # change training behavior.
-  is_CKA: false
+  is_CKA: True
   lambda_CKA: 0.01

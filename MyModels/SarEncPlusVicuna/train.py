@@ -319,31 +319,33 @@ def generate_samples(vlm, val_dataset, tokenizer, device, num_samples=2, log_fil
 #####
 def build_dataset(c_data, split: str, tokenizer, max_length):
     """
-    Build a SARVLMDataset for the given split ("train"/"val"). If a second
-    dataset is configured (data.{split}_jsonl_2), it's subsampled down to the
-    primary dataset's record count and concatenated with it 1:1, so the two
-    stay balanced instead of the second dominating by size.
+    Build a SARVLMDataset for the given split ("train"/"val"). Supports any
+    number of extra datasets via data.{split}_jsonl_2, _3, _4, ... (each with
+    its own optional data_root_N, defaulting to data.data_root) -- stops at
+    the first missing N. Every extra source is subsampled down to the
+    primary dataset's record count before being concatenated in, so no
+    single extra source dominates by size.
     """
-    # TODO: hardcoded to 2 sources; generalize to N sources if a 3rd
-    # dataset actually shows up.
-    primary_key = f"{split}_jsonl"
-    secondary_key = f"{split}_jsonl_2"
-    secondary_root_key = "data_root_2"
-
-    primary_path = c_data[primary_key]
+    primary_path = c_data[f"{split}_jsonl"]
     primary_root = c_data["data_root"]
+    primary_sample_size = c_data.get(f"{split}_sample_size")  # None = use all records
 
-    sources = [{"jsonl_path": primary_path, "data_root": primary_root, "sample_size": None}]
+    sources = [{"jsonl_path": primary_path, "data_root": primary_root, "sample_size": primary_sample_size}]
 
-    secondary_path = c_data.get(secondary_key)
-    if secondary_path:
-        base_count = count_jsonl_records(primary_path)
-        secondary_root = c_data.get(secondary_root_key, primary_root)
+    base_count = None
+    n = 2
+    while True:
+        secondary_path = c_data.get(f"{split}_jsonl_{n}")
+        if not secondary_path:
+            break
+        if base_count is None:
+            base_count = count_jsonl_records(primary_path)
         sources.append({
             "jsonl_path": secondary_path,
-            "data_root": secondary_root,
+            "data_root": c_data.get(f"data_root_{n}", primary_root),
             "sample_size": base_count,
         })
+        n += 1
 
     return SARVLMDataset(
         sources=sources,
