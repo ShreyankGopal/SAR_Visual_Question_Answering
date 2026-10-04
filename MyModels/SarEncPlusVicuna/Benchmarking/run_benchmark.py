@@ -106,21 +106,111 @@ def is_single_word_gt(gt: str) -> bool:
     return len(normalise(gt).split()) == 1
 
 
-def get_latest_checkpoint(checkpoints_dir: str):
-    """Find the latest checkpoint directory based on step number."""
+def discover_val_datasets(c_data: dict) -> list:
+    """
+    Collect every val dataset defined in the config's `data` block.
+
+    Looks for val_jsonl / data_root (primary), then val_jsonl_2 / data_root_2,
+    val_jsonl_3 / data_root_3, etc. (same numbering scheme already used for
+    train_jsonl_N / data_root_N). An optional dataset_name_N key gives it a
+    label; otherwise the label is inferred from the jsonl path.
+    """
+    datasets = []
+
+    def _name_for(key_suffix: str, jsonl_path: str) -> str:
+        name_key = f"dataset_name{key_suffix}"
+        if c_data.get(name_key):
+            return c_data[name_key]
+        return Path(jsonl_path).parent.parent.name or Path(jsonl_path).stem
+
+    if c_data.get("val_jsonl"):
+        datasets.append({
+            "name": _name_for("", c_data["val_jsonl"]),
+            "val_jsonl": c_data["val_jsonl"],
+            "data_root": c_data["data_root"],
+        })
+
+    i = 2
+    while c_data.get(f"val_jsonl_{i}"):
+        datasets.append({
+            "name": _name_for(f"_{i}", c_data[f"val_jsonl_{i}"]),
+            "val_jsonl": c_data[f"val_jsonl_{i}"],
+            "data_root": c_data[f"data_root_{i}"],
+        })
+        i += 1
+
+    return datasets
+
+
+def list_checkpoints_desc(checkpoints_dir: str) -> list:
+    """All step_* checkpoint dirs under checkpoints_dir, sorted newest-first."""
     checkpoint_dirs = glob.glob(os.path.join(checkpoints_dir, "step_*"))
     if not checkpoint_dirs:
         raise ValueError(f"No checkpoints found in {checkpoints_dir}")
-    
+
     step_dirs = []
     for dir_path in checkpoint_dirs:
         dir_name = os.path.basename(dir_path)
-        step_num = int(dir_name.replace("step_", ""))
+        try:
+            step_num = int(dir_name.replace("step_", ""))
+        except ValueError:
+            continue
         step_dirs.append((step_num, dir_path))
-    
+
     step_dirs.sort(key=lambda x: x[0], reverse=True)
-    latest_step, latest_path = step_dirs[0]
+    return step_dirs
+
+
+def get_latest_checkpoint(checkpoints_dir: str):
+    """Find the latest checkpoint directory based on step number."""
+    latest_step, latest_path = list_checkpoints_desc(checkpoints_dir)[0]
     return latest_path, latest_step
+
+
+def checkpoint_is_healthy(vlm, checkpoint_path: str, health_batch: dict, device) -> bool:
+    """
+    Load adapter + projector weights from checkpoint_path into vlm, then run
+    one real forward pass on health_batch and check the loss/logits are
+    finite. Returns False (without raising) on any load or NaN/Inf failure,
+    so the caller can fall back to the next-older checkpoint.
+    """
+    try:
+        vlm.hybrid_vicuna.load_adapter(checkpoint_path, adapter_name="default")
+        projector_path = os.path.join(checkpoint_path, "projector.pth")
+        vlm.projector.load_state_dict(torch.load(projector_path, map_location=device))
+    except Exception as e:
+        log(f"    Failed to load weights from {checkpoint_path}: {e}")
+        return False
+
+    vlm.eval()
+    try:
+        with torch.no_grad():
+            output = vlm(
+                sar_input=health_batch["sar_input"].to(device, dtype=torch.float32),
+                input_ids=health_batch["input_ids"].to(device),
+                attention_mask=health_batch["attention_mask"].to(device),
+                labels=health_batch["labels"].to(device),
+            )
+        loss = output.loss
+        if loss is None or not torch.isfinite(loss):
+            log(f"    Non-finite loss ({loss}) from {checkpoint_path}")
+            return False
+        if output.logits is not None and not torch.isfinite(output.logits).all():
+            log(f"    Non-finite logits from {checkpoint_path}")
+            return False
+        return True
+    except Exception as e:
+        log(f"    Forward pass failed for {checkpoint_path}: {e}")
+        return False
+
+
+def build_health_check_batch(c_data: dict, c_train: dict, tokenizer) -> dict:
+    """One-sample batch (from the primary val set) used to sanity-check a checkpoint."""
+    health_dataset = SARVLMDataset(
+        c_data["val_jsonl"], c_data["data_root"], tokenizer, max_length=c_train["max_length"]
+    )
+    health_dataset.records = health_dataset.records[:1]
+    return collate_fn([health_dataset[0]], tokenizer)
 
 
 # ===========================================================================
@@ -194,14 +284,6 @@ def load_model(config_path: str, checkpoint_path: str = None):
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.unk_token
 
-    # Find latest checkpoint if not specified
-    if checkpoint_path is None:
-        checkpoint_path, global_step = get_latest_checkpoint(c_train["save_dir"])
-        log(f"Using latest checkpoint: {checkpoint_path} (step {global_step})")
-    else:
-        global_step = int(checkpoint_path.split("_")[-1])
-        log(f"Using specified checkpoint: {checkpoint_path}")
-
     # Load SAR encoder
     log("Loading SAR Encoder...")
     sar_encoder = build_sar_encoder(
@@ -228,12 +310,36 @@ def load_model(config_path: str, checkpoint_path: str = None):
     vlm = vlm.to(device)
     vlm.hybrid_vicuna.gradient_checkpointing_enable()
 
-    # Load checkpoint weights
-    log(f"Loading checkpoint weights from {checkpoint_path}...")
-    vlm.hybrid_vicuna.load_adapter(checkpoint_path, adapter_name="default")
-    
-    projector_path = os.path.join(checkpoint_path, "projector.pth")
-    vlm.projector.load_state_dict(torch.load(projector_path, map_location=device))
+    if checkpoint_path is not None:
+        # User explicitly chose this checkpoint -- load it as-is, no health check.
+        global_step = int(checkpoint_path.split("_")[-1])
+        log(f"Loading specified checkpoint: {checkpoint_path}")
+        vlm.hybrid_vicuna.load_adapter(checkpoint_path, adapter_name="default")
+        projector_path = os.path.join(checkpoint_path, "projector.pth")
+        vlm.projector.load_state_dict(torch.load(projector_path, map_location=device))
+    else:
+        # Walk step_* checkpoints newest-first; skip any that fail to load or
+        # produce a NaN/Inf loss on a real sample, until a healthy one is found.
+        candidates = list_checkpoints_desc(c_train["save_dir"])
+        log(f"Found {len(candidates)} checkpoint(s) in {c_train['save_dir']}")
+        log("Building 1-sample health-check batch from the primary val set...")
+        health_batch = build_health_check_batch(c_data, c_train, tokenizer)
+
+        chosen = None
+        for step_num, cand_path in candidates:
+            log(f"  Checking step_{step_num} ({cand_path}) ...")
+            if checkpoint_is_healthy(vlm, cand_path, health_batch, device):
+                log(f"  -> step_{step_num} is healthy (finite loss). Using it.")
+                chosen = (cand_path, step_num)
+                break
+            log(f"  -> step_{step_num} failed health check, trying next-older checkpoint.")
+
+        if chosen is None:
+            raise RuntimeError(
+                f"No healthy checkpoint found in {c_train['save_dir']} "
+                f"(all {len(candidates)} candidate(s) failed to load or produced NaN/Inf)"
+            )
+        checkpoint_path, global_step = chosen
 
     log("Model loaded successfully")
     return vlm, tokenizer, device, global_step
@@ -284,7 +390,7 @@ def run_one(batch: dict, vlm, tokenizer, device) -> str:
 # ===========================================================================
 # Main benchmark loop (using SARVLMDataset)
 # ===========================================================================
-def run_benchmark(dataset, vlm, tokenizer, device, split_name: str) -> list:
+def run_benchmark(dataset, vlm, tokenizer, device, split_name: str, dataset_name: str = "val") -> list:
     results = []
     
     # Create dataloader with batch_size=1 for individual processing
@@ -329,6 +435,7 @@ def run_benchmark(dataset, vlm, tokenizer, device, split_name: str) -> list:
 
         row = {
             "id":         rec_id,
+            "dataset":    dataset_name,
             "split":      split_name,
             "category":   category,
             "image":      record.get("image", ""),
@@ -344,7 +451,7 @@ def run_benchmark(dataset, vlm, tokenizer, device, split_name: str) -> list:
         # Live progress line
         em_str = f" EM={metrics['exact_match']:.0f}" if metrics["exact_match"] is not None else ""
         print(
-            f"\r  {idx+1}/{n} ({(idx+1)/n*100:.0f}%)"
+            f"\r  [{dataset_name}] {idx+1}/{n} ({(idx+1)/n*100:.0f}%)"
             f"  bleu1={metrics['bleu1']:.3f}"
             f"  rouge1={metrics['rouge1']:.3f}"
             f"{em_str}"
@@ -417,34 +524,70 @@ def save_results(results: list, split_name: str) -> None:
     log(f"JSON -> {json_path}")
 
     # ── Summary report ────────────────────────────────────────────────────────
-    summary_lines = []
     W = 64
-
-    summary_lines += [
+    summary_lines = [
         "=" * W,
         f"  SAR-VLM Benchmark  --  {split_name.upper()} split",
         f"  Timestamp : {ts}",
         f"  Total samples : {len(results)}   Errors: {sum(1 for r in results if r['error'])}",
         "=" * W,
+    ]
+
+    datasets = {}
+    for r in results:
+        datasets.setdefault(r["dataset"], []).append(r)
+
+    # Per-dataset, per-category breakdown
+    for ds_name in sorted(datasets):
+        ds_rows = datasets[ds_name]
+        summary_lines += [
+            "",
+            "#" * W,
+            f"  DATASET: {ds_name}  (n={len(ds_rows)})",
+            "#" * W,
+            "",
+            "  DATASET-WIDE STATISTICS",
+            "  " + "-" * (W - 2),
+        ]
+        summary_lines += _stats_block(ds_rows)
+
+        cats = {}
+        for r in ds_rows:
+            cats.setdefault(r["category"], []).append(r)
+
+        summary_lines += ["", "  PER-CATEGORY STATISTICS", "  " + "-" * (W - 2)]
+        for cat in sorted(cats):
+            summary_lines += [
+                "",
+                f"    [{cat}]  (n={len(cats[cat])})",
+                "    " + "-" * (W // 2),
+            ]
+            summary_lines += _stats_block(cats[cat], prefix="      ")
+
+    # Overall, across all datasets combined
+    summary_lines += [
         "",
-        "DATASET-WIDE STATISTICS",
+        "=" * W,
+        "  OVERALL  (all datasets combined)",
+        "=" * W,
+        "",
+        "OVERALL DATASET-WIDE STATISTICS",
         "-" * W,
     ]
     summary_lines += _stats_block(results)
 
-    # Per-category
-    cats = {}
+    overall_cats = {}
     for r in results:
-        cats.setdefault(r["category"], []).append(r)
+        overall_cats.setdefault(r["category"], []).append(r)
 
-    summary_lines += ["", "PER-CATEGORY STATISTICS", "=" * W]
-    for cat in sorted(cats):
+    summary_lines += ["", "OVERALL PER-CATEGORY STATISTICS (pooled across datasets)", "-" * W]
+    for cat in sorted(overall_cats):
         summary_lines += [
             "",
-            f"  [{cat}]  (n={len(cats[cat])})",
+            f"  [{cat}]  (n={len(overall_cats[cat])})",
             "-" * (W // 2),
         ]
-        summary_lines += _stats_block(cats[cat], prefix="    ")
+        summary_lines += _stats_block(overall_cats[cat], prefix="    ")
 
     summary_lines += ["", "=" * W]
 
@@ -507,37 +650,48 @@ def main():
     gpu_res   = torch.cuda.memory_reserved()  / 1024**3
     log(f"GPU: {gpu_alloc:.2f} GB allocated / {gpu_res:.2f} GB reserved")
 
-    # Load validation dataset using SARVLMDataset (same as val.py)
-    log(f"\nLoading validation dataset from {c_data['val_jsonl']} ...")
-    dataset = SARVLMDataset(
-        c_data["val_jsonl"],
-        c_data["data_root"],
-        tokenizer,
-        max_length=c_train["max_length"]
-    )
-    log(f"  Total samples: {len(dataset)}")
+    # Discover every val dataset defined in the config (val_jsonl, val_jsonl_2, ...)
+    val_datasets = discover_val_datasets(c_data)
+    if not val_datasets:
+        raise ValueError("No val_jsonl found in config['data']")
+    log(f"\nFound {len(val_datasets)} val dataset(s): {[d['name'] for d in val_datasets]}")
 
-    if args.category:
-        # Filter dataset by category
-        filtered_records = [r for r in dataset.records if r.get("category") == args.category]
-        dataset.records = filtered_records
-        log(f"  After category filter '{args.category}': {len(dataset.records)}")
+    all_results = []
+    for ds in val_datasets:
+        log(f"\nLoading dataset '{ds['name']}' from {ds['val_jsonl']} ...")
+        dataset = SARVLMDataset(
+            ds["val_jsonl"],
+            ds["data_root"],
+            tokenizer,
+            max_length=c_train["max_length"]
+        )
+        log(f"  Total samples: {len(dataset)}")
 
-    if args.shuffle:
-        import random
-        random.shuffle(dataset.records)
+        if args.category:
+            filtered_records = [r for r in dataset.records if r.get("category") == args.category]
+            dataset.records = filtered_records
+            log(f"  After category filter '{args.category}': {len(dataset.records)}")
 
-    if args.subset is not None:
-        dataset.records = dataset.records[: args.subset]
-        log(f"  Subset: {len(dataset.records)}")
+        if args.shuffle:
+            import random
+            random.shuffle(dataset.records)
 
-    log(f"\nStarting evaluation on {len(dataset.records)} samples ...\n")
-    t0 = time.time()
-    results = run_benchmark(dataset, vlm, tokenizer, device, "val")
-    elapsed = time.time() - t0
-    log(f"Done in {elapsed:.1f}s  ({elapsed/len(results):.2f}s/sample)")
+        if args.subset is not None:
+            dataset.records = dataset.records[: args.subset]
+            log(f"  Subset: {len(dataset.records)}")
 
-    save_results(results, "val")
+        if not dataset.records:
+            log(f"  Skipping '{ds['name']}' -- no samples after filtering")
+            continue
+
+        log(f"\nStarting evaluation on '{ds['name']}' ({len(dataset.records)} samples) ...\n")
+        t0 = time.time()
+        results = run_benchmark(dataset, vlm, tokenizer, device, "val", dataset_name=ds["name"])
+        elapsed = time.time() - t0
+        log(f"Done '{ds['name']}' in {elapsed:.1f}s  ({elapsed/len(results):.2f}s/sample)")
+        all_results.extend(results)
+
+    save_results(all_results, "val")
 
     log("\nAll done!")
 

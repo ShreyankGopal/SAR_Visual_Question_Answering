@@ -263,7 +263,8 @@ def run_validation(
             encoder_output = intermediate_outputs['encoder_output']
             penultimate_hidden = intermediate_outputs['penultimate_hidden']
 
-            if is_CKA and cka_loss_fn is not None:
+            # CKA needs >= 2 samples; a short final batch can have just 1.
+            if is_CKA and cka_loss_fn is not None and encoder_output.shape[0] >= 2:
                 encoder_pooled = encoder_output.mean(dim=1)          # [B, d_sar]
                 llm_penultimate_pooled = penultimate_hidden.mean(dim=1)  # [B, hidden_size]
                 val_cka_loss, val_cka_value = cka_loss_fn(encoder_pooled, llm_penultimate_pooled)
@@ -579,7 +580,9 @@ def main():
                 loss = outputs.loss / grad_acc_steps
 
             cka_loss = torch.tensor(0.0, device=device, dtype=loss.dtype)
-            if is_CKA and cka_loss_fn is not None and intermediate_outputs:
+            # CKA needs >= 2 samples; a short final batch can have just 1.
+            if (is_CKA and cka_loss_fn is not None and intermediate_outputs
+                    and intermediate_outputs['encoder_output'].shape[0] >= 2):
                 encoder_pooled = intermediate_outputs['encoder_output'].mean(dim=1)
                 llm_penultimate_pooled = intermediate_outputs['penultimate_hidden'].mean(dim=1)
                 cka_loss, cka_value = cka_loss_fn(encoder_pooled, llm_penultimate_pooled)

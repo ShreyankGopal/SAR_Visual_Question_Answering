@@ -10,7 +10,7 @@ Data flow:
         ↓  SARProjector (trainable MLP) => we use SARAblationProjector for running ablation 3
     sar_tokens  [B, N_visual, llm_hidden_size]
         ↓  GeoRoPEVisualAdapter (trainable, optional) — ground-aware 2D rotary
-           correction; replaces Vicuna's meaningless 1D sequential positions
+           correction; replaces Vicuna's 1D sequential positions
            for the visual tokens (see model/georope_adapter.py)
     sar_tokens  [B, N_visual, llm_hidden_size]
         ↓  concatenate with text embeddings
