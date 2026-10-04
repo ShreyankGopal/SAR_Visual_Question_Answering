@@ -432,6 +432,7 @@ def main():
         lora_target_modules=c_lora["target_modules"],
         apply_lora=True,
         torch_dtype=torch.float32,
+        low_memory_load=True,
         use_georope_adapter=c_georope.get("enable", True),
         georope_bottleneck_dim=c_georope.get("bottleneck_dim", 256),
         georope_num_heads=c_georope.get("num_heads", 4),

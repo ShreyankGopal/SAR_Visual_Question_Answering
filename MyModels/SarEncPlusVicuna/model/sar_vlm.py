@@ -272,6 +272,7 @@ class SARVLM(nn.Module):
         georope_gcc_alpha: float = 0.5,
         georope_gfc_hidden_dim: int = 64,
         georope_zero_init_output: bool = False,
+        low_memory_load: bool = False,
         **kwargs,
     ) -> "SARVLM":
         """
@@ -292,6 +293,11 @@ class SARVLM(nn.Module):
             georope_bottleneck_dim, georope_num_heads, georope_gcc_alpha,
                 georope_gfc_hidden_dim, georope_zero_init_output: Passed
                 straight through to GeoRoPEVisualAdapter.
+            low_memory_load: If True, load Vicuna straight into
+                HybridLlamaForCausalLM (one copy in RAM, ~half the peak)
+                instead of loading a stock model and copying its weights
+                into a second one. Raises if any weight is missing. Off by
+                default so existing callers keep the original load path.
             **kwargs: Extra arguments passed to SARVLM.__init__.
         """
         from transformers import AutoModelForCausalLM, AutoConfig
@@ -302,29 +308,50 @@ class SARVLM(nn.Module):
 
         print(f"[SARVLM] Loading Vicuna weights from {vicuna_path} ...")
 
-        # Load weights on CPU first to avoid GPU OOM during loading
-        vicuna_base = AutoModelForCausalLM.from_pretrained(
-            vicuna_path,
-            torch_dtype=torch_dtype,
-            attn_implementation="eager",
-            low_cpu_mem_usage=True,
-        )
-        
-        # Build HybridLlamaForCausalLM
-        hybrid_vicuna = HybridLlamaForCausalLM(config)
-        
-        # Copy weights from CPU to hybrid_vicuna
-        print("[SARVLM] Copying Vicuna weights to hybrid vicuna...")
-        result = hybrid_vicuna.load_state_dict(vicuna_base.state_dict(), strict=True)
-        if result.missing_keys or result.unexpected_keys:
-            print(f"[SARVLM] WARNING — missing: {result.missing_keys}, "
-                  f"unexpected: {result.unexpected_keys}")
+        if low_memory_load:
+            # Single copy in RAM: keys of the hybrid model match Vicuna's.
+            hybrid_vicuna, info = HybridLlamaForCausalLM.from_pretrained(
+                vicuna_path,
+                config=config,
+                torch_dtype=torch_dtype,
+                attn_implementation="eager",
+                low_cpu_mem_usage=True,
+                output_loading_info=True,
+            )
+            # from_pretrained only warns on missing weights (they'd be left
+            # randomly initialised), so fail loudly like strict=True did.
+            if info.get("missing_keys"):
+                raise RuntimeError(
+                    f"[SARVLM] Vicuna weights missing from checkpoint: {info['missing_keys']}"
+                )
+            if info.get("unexpected_keys"):
+                print(f"[SARVLM] WARNING — unexpected checkpoint keys ignored: "
+                      f"{info['unexpected_keys']}")
+            print("[SARVLM] Vicuna weights loaded successfully (0 missing).")
         else:
-            print("[SARVLM] Vicuna weights loaded successfully (0 missing, 0 unexpected).")
+            # Load weights on CPU first to avoid GPU OOM during loading
+            vicuna_base = AutoModelForCausalLM.from_pretrained(
+                vicuna_path,
+                torch_dtype=torch_dtype,
+                attn_implementation="eager",
+                low_cpu_mem_usage=True,
+            )
 
-        # Immediately delete vicuna_base and force garbage collection
-        del vicuna_base
-        gc.collect()
+            # Build HybridLlamaForCausalLM
+            hybrid_vicuna = HybridLlamaForCausalLM(config)
+
+            # Copy weights from CPU to hybrid_vicuna
+            print("[SARVLM] Copying Vicuna weights to hybrid vicuna...")
+            result = hybrid_vicuna.load_state_dict(vicuna_base.state_dict(), strict=True)
+            if result.missing_keys or result.unexpected_keys:
+                print(f"[SARVLM] WARNING — missing: {result.missing_keys}, "
+                      f"unexpected: {result.unexpected_keys}")
+            else:
+                print("[SARVLM] Vicuna weights loaded successfully (0 missing, 0 unexpected).")
+
+            # Immediately delete vicuna_base and force garbage collection
+            del vicuna_base
+            gc.collect()
 
         # SAR encoder
         if sar_encoder is None:
