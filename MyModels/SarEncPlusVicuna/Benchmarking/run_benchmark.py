@@ -369,7 +369,9 @@ def load_model(config: dict, checkpoint_path: str = None):
 
     if checkpoint_path is not None:
         # User explicitly chose this checkpoint -- load it as-is, no health check.
-        global_step = int(Path(checkpoint_path).name.split("_")[-1])
+        # Step number from names like step_103800 or step_103800_backup.
+        m = re.search(r"step_(\d+)", Path(checkpoint_path).name)
+        global_step = int(m.group(1)) if m else Path(checkpoint_path).name
         log(f"Loading specified checkpoint: {checkpoint_path}")
         load_checkpoint_weights(vlm, checkpoint_path, device)
     else:
