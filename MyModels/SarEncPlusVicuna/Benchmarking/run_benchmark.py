@@ -49,6 +49,7 @@ the checkpoints folder, e.g. GeoRoPE_CKA_Data/ -- named by checkpoint step)
 # ===========================================================================
 import argparse
 import csv
+import gc
 import glob
 import json
 import os
@@ -331,6 +332,11 @@ def load_model(config: dict, checkpoint_path: str = None):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     log(f"Running on device: {device}")
 
+    # Clear cache before loading
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+        gc.collect()
+
     tokenizer = AutoTokenizer.from_pretrained(c_model["vicuna_path"], use_fast=False)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.unk_token
@@ -341,6 +347,11 @@ def load_model(config: dict, checkpoint_path: str = None):
         freeze=True,
         d_sar=c_model["d_sar"],
     )
+
+    # Clear cache after SAR encoder
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+        gc.collect()
 
     log("Loading SAR-VLM model (fp32, same as training)...")
     vlm = SARVLM.from_vicuna(
@@ -355,6 +366,7 @@ def load_model(config: dict, checkpoint_path: str = None):
         apply_lora=True,
         torch_dtype=torch.float32,
         low_memory_load=True,
+        load_cpu=c_model.get("load_cpu", False),
         use_georope_adapter=c_georope.get("enable", True),
         georope_bottleneck_dim=c_georope.get("bottleneck_dim", 256),
         georope_num_heads=c_georope.get("num_heads", 4),
@@ -365,6 +377,12 @@ def load_model(config: dict, checkpoint_path: str = None):
     vlm = vlm.to(device)
     vlm.eval()
 
+    # Clear cache after model loading
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+        gc.collect()
+        log("CUDA cache cleared after model loading")
+
     ref_gsd_m = c_georope.get("ref_gsd_m")
 
     if checkpoint_path is not None:
@@ -374,6 +392,12 @@ def load_model(config: dict, checkpoint_path: str = None):
         global_step = int(m.group(1)) if m else Path(checkpoint_path).name
         log(f"Loading specified checkpoint: {checkpoint_path}")
         load_checkpoint_weights(vlm, checkpoint_path, device)
+
+        # Clear cache after checkpoint loading
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            gc.collect()
+            log("CUDA cache cleared after checkpoint loading")
     else:
         # Walk step_* checkpoints newest-first; skip any that fail to load or
         # produce a NaN/Inf loss on a real sample, until a healthy one is found.
@@ -496,6 +520,11 @@ def run_benchmark(dataset, ds: dict, vlm, tokenizer, device, ref_gsd_m,
         em = _safe_mean([r["exact_match"] for r in results])
         print(f"\r  [{ds['name']}] {done}/{n} ({done/n*100:.0f}%)  running EM={em or 0:.3f}          ",
               end="", flush=True)
+
+        # Periodic cache clearing during benchmark
+        if done % 50 == 0 and torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            gc.collect()
 
     print()
     return results
@@ -712,12 +741,31 @@ def main():
             log(f"  Skipping '{ds['name']}' -- no samples after filtering")
             continue
 
+        # Clear cache before benchmarking this dataset
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            gc.collect()
+
         t0 = time.time()
-        results = run_benchmark(dataset, ds, vlm, tokenizer, device, ref_gsd_m,
-                                args.batch_size, args.max_new_tokens, pred_file)
-        elapsed = time.time() - t0
-        log(f"Done '{ds['name']}' in {elapsed:.1f}s  ({elapsed/len(results):.2f}s/sample)")
-        all_results.extend(results)
+        try:
+            results = run_benchmark(dataset, ds, vlm, tokenizer, device, ref_gsd_m,
+                                    args.batch_size, args.max_new_tokens, pred_file)
+            elapsed = time.time() - t0
+            log(f"Done '{ds['name']}' in {elapsed:.1f}s  ({elapsed/len(results):.2f}s/sample)")
+            all_results.extend(results)
+        except Exception as e:
+            log(f"ERROR benchmarking '{ds['name']}': {e}")
+            # Clear cache on error
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                gc.collect()
+            continue
+
+        # Clear cache after each dataset
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            gc.collect()
+            log("CUDA cache cleared after dataset")
     pred_file.close()
     log(f"Predictions -> {pred_path}")
 

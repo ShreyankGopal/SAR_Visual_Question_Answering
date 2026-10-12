@@ -69,7 +69,7 @@ lora:
   target_modules: ["q_proj", "k_proj", "v_proj", "o_proj"]
 
 georope:
-  enable: true
+  enable: false
   bottleneck_dim: 256
   num_heads: 4
   gcc_alpha: 0.5
@@ -89,11 +89,11 @@ training:
   learning_rate: 2.0e-5
   weight_decay: 0.0
   max_length: 512 # Max text sequence length
-  save_dir: "/home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/GeoRoPE_CKA_Data/checkpoints/"
-  log_file: "/home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/GeoRoPE_CKA_Data/training.log"
+  save_dir: "/home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/Full_Model_AR_Data_4OBJ/checkpoints/"
+  log_file: "/home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/Full_Model_AR_Data_4OBJ/training.log"
   # CKA (Centered Kernel Alignment) auxiliary loss, aligning the SAR
   # encoder's output with the LLM's penultimate-layer representation.
   # Off by default -- flip on deliberately, don't let a pull silently
   # change training behavior.
-  is_CKA: True
+  is_CKA: false
   lambda_CKA: 0.01

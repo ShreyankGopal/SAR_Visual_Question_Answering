@@ -273,6 +273,7 @@ class SARVLM(nn.Module):
         georope_gfc_hidden_dim: int = 64,
         georope_zero_init_output: bool = False,
         low_memory_load: bool = False,
+        load_cpu: bool = False,
         **kwargs,
     ) -> "SARVLM":
         """
@@ -298,6 +299,9 @@ class SARVLM(nn.Module):
                 instead of loading a stock model and copying its weights
                 into a second one. Raises if any weight is missing. Off by
                 default so existing callers keep the original load path.
+            load_cpu: If False (default), load Vicuna directly to GPU.
+                If True, load on CPU first then move to GPU (for memory-constrained systems).
+                When load_cpu=False, this overrides low_memory_load behavior.
             **kwargs: Extra arguments passed to SARVLM.__init__.
         """
         from transformers import AutoModelForCausalLM, AutoConfig
@@ -308,7 +312,27 @@ class SARVLM(nn.Module):
 
         print(f"[SARVLM] Loading Vicuna weights from {vicuna_path} ...")
 
-        if low_memory_load:
+        # Direct GPU loading when load_cpu=False (faster, no CPU intermediate steps)
+        if not load_cpu:
+            print("[SARVLM] Loading Vicuna directly to GPU...")
+            hybrid_vicuna, info = HybridLlamaForCausalLM.from_pretrained(
+                vicuna_path,
+                config=config,
+                torch_dtype=torch_dtype,
+                attn_implementation="eager",
+                low_cpu_mem_usage=True,
+                device_map="cuda",  # Direct GPU loading
+                output_loading_info=True,
+            )
+            if info.get("missing_keys"):
+                raise RuntimeError(
+                    f"[SARVLM] Vicuna weights missing from checkpoint: {info['missing_keys']}"
+                )
+            if info.get("unexpected_keys"):
+                print(f"[SARVLM] WARNING — unexpected checkpoint keys ignored: "
+                      f"{info['unexpected_keys']}")
+            print("[SARVLM] Vicuna weights loaded successfully (0 missing).")
+        elif low_memory_load:
             # Single copy in RAM: keys of the hybrid model match Vicuna's.
             hybrid_vicuna, info = HybridLlamaForCausalLM.from_pretrained(
                 vicuna_path,

@@ -31,6 +31,7 @@ Resuming:
 
 import argparse
 import functools
+import gc
 import os
 import re
 import shutil
@@ -409,6 +410,11 @@ def main():
     # ---------------------------------------------------------
     log("Loading SAR Encoder and Hybrid Vicuna Model...", c_train["log_file"])
 
+    # Clear cache before loading
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+        gc.collect()
+
     sar_encoder = build_sar_encoder(
         checkpoint_path=c_model["encoder_checkpoint"],
         freeze=True,
@@ -416,6 +422,11 @@ def main():
     )
 
     log("SAR encoder loaded", c_train["log_file"])
+
+    # Clear cache after SAR encoder
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+        gc.collect()
 
     # Get load_cpu flag from config (default to False if not specified)
     load_cpu = c_model.get("load_cpu", False)
@@ -433,6 +444,7 @@ def main():
         apply_lora=True,
         torch_dtype=torch.float32,
         low_memory_load=True,
+        load_cpu=load_cpu,
         use_georope_adapter=c_georope.get("enable", True),
         georope_bottleneck_dim=c_georope.get("bottleneck_dim", 256),
         georope_num_heads=c_georope.get("num_heads", 4),
@@ -445,6 +457,12 @@ def main():
     vlm = vlm.to(device)
 
     log("Model moved to device", c_train["log_file"])
+
+    # Clear CUDA cache after model loading
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+        gc.collect()
+        log("CUDA cache cleared after model loading", c_train["log_file"])
 
     # ---------------------------------------------------------
     # CKA loss initialization (encoder-vs-LLM representation alignment)
@@ -467,6 +485,11 @@ def main():
 
     if resume_path:
         load_model_weights(vlm, resume_path, device, c_train["log_file"])
+        # Clear cache after checkpoint loading
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            gc.collect()
+            log("CUDA cache cleared after checkpoint loading", c_train["log_file"])
 
     # ---------------------------------------------------------
     # Dataset
@@ -613,6 +636,11 @@ def main():
             global_step += 1
 
             pbar.set_postfix({"loss": f"{loss_val:.4f}", "step": global_step})
+
+            # Periodic cache clearing during training
+            if global_step % 100 == 0 and torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                gc.collect()
 
             if global_step % CHECKPOINT_EVERY == 0:
                 # Save BEFORE validation/sampling. epoch=epoch (not epoch+1):
