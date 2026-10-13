@@ -9,6 +9,10 @@ Data flow:
     sar_features  [B, N_visual=256, D_sar=1024]      (f3 of SwinV2-Base, flattened)
         ↓  SARProjector (trainable MLP) => we use SARAblationProjector for running ablation 3
     sar_tokens  [B, N_visual, llm_hidden_size]
+        ↓  GeoRoPEVisualAdapter (trainable, optional) — ground-aware 2D rotary
+           correction; replaces Vicuna's 1D sequential positions
+           for the visual tokens (see model/georope_adapter.py)
+    sar_tokens  [B, N_visual, llm_hidden_size]
         ↓  concatenate with text embeddings
     inputs_embeds  [B, N_visual + N_text, llm_hidden_size]
         ↓  HybridLlamaForCausalLM (Vicuna base frozen, LoRA trainable)
@@ -16,6 +20,7 @@ Data flow:
 
 Trainable components:
     - SARProjector (MLP weights) => again here we use SARAblationProjector soley for the purpose of ablation 3
+    - GeoRoPEVisualAdapter (optional, enabled by default via from_vicuna)
     - Vicuna LoRA matrices (q/k/v/o_proj in every attention layer)
 
 Frozen components:
@@ -26,7 +31,9 @@ Label convention (VQA):
     labels = [-100] * N_visual + [-100] * N_question + [answer_token_ids...]
     Loss is computed only on answer tokens.
 """
-from typing import Optional
+import gc
+import math
+from typing import Optional, List
 
 import torch
 from torch import nn
@@ -34,11 +41,12 @@ from torch import nn
 from .hybrid_llama import HybridLlamaForCausalLM
 from .sar_projector import SARProjector
 from .sar_ablation_projector import SARAblationProjector
+from .georope_adapter import GeoRoPEVisualAdapter
 
 
-# ---------------------------------------------------------------------------
+
 # SAR Encoder — placeholder and real-encoder factory
-# ---------------------------------------------------------------------------
+
 
 class SAREncoderPlaceholder(nn.Module):
     """
@@ -82,6 +90,243 @@ class SAREncoderPlaceholder(nn.Module):
         )
 
 
+# ---------------------------------------------------------------------------
+# Gated LoRA
+# ---------------------------------------------------------------------------
+
+class GatedLoRA(nn.Module):
+    """
+    Gated LoRA with GSD-aware gating mechanism.
+
+    The gating function uses learnable thresholds T_k and a learnable scale beta:
+        s = log10(gsd)
+        h_k(s) = sigmoid(beta * (T_k - s))
+
+    The final LoRA output is:
+        output = Wx + B * diag(h(s)) * Ax
+
+    where:
+        - W: original linear layer weights (frozen)
+        - A: LoRA down-projection [in_features, rank]
+        - B: LoRA up-projection [rank, out_features]
+        - h(s): gating vector of size [rank]
+        - diag(h(s)): diagonal matrix formed from gating values
+
+    Args:
+        in_features: Input dimension
+        out_features: Output dimension
+        rank: LoRA rank (number of gating functions)
+        alpha: LoRA scaling factor
+        dropout: Dropout probability
+    """
+
+    def __init__(
+        self,
+        in_features: int,
+        out_features: int,
+        rank: int = 16,
+        alpha: int = 32,
+        dropout: float = 0.05,
+    ):
+        super().__init__()
+        self.in_features = in_features
+        self.out_features = out_features
+        self.rank = rank
+        self.alpha = alpha
+        self.scaling = alpha / rank
+
+        # LoRA matrices
+        self.lora_A = nn.Parameter(torch.zeros(in_features, rank)) # make A matrix samples from normal distribution
+        self.lora_B = nn.Parameter(torch.zeros(rank, out_features)) # let be matrix be zero as it is
+
+        # Gating parameters
+        # T0 to T_{rank-1}: learnable thresholds for each rank
+        self.gate_thresholds = nn.Parameter(torch.zeros(rank))
+        # beta: learnable scale for sigmoid
+        self.gate_beta = nn.Parameter(torch.ones(1))
+
+        # Dropout
+        self.dropout = nn.Dropout(dropout) if dropout > 0 else nn.Identity()
+
+        # Initialize weights
+        nn.init.kaiming_uniform_(self.lora_A, a=math.sqrt(5))
+        nn.init.zeros_(self.lora_B)
+
+        # Initialize thresholds uniformly in a reasonable range
+        # Assuming log10(gsd) values typically in range [-2, 2] for SAR imagery
+        nn.init.uniform_(self.gate_thresholds, a=-2.0, b=2.0)
+
+    def compute_gating(self, gsd: torch.Tensor) -> torch.Tensor:
+        """
+        Compute gating values based on GSD.
+
+        Args:
+            gsd: [B] or scalar tensor - ground sample distance in meters
+
+        Returns:
+            h: [B, rank] - gating values in [0, 1]
+        """
+        # s = log10(gsd)
+        s = torch.log10(gsd.clamp(min=1e-6))  # Avoid log(0)
+
+        # h_k(s) = sigmoid(beta * (T_k - s))
+        # s: [B] or scalar
+        # gate_thresholds: [rank]
+        # Result: [B, rank]
+        delta = self.gate_thresholds.unsqueeze(0) - s.unsqueeze(-1)  # [B, rank]
+        h = torch.sigmoid(self.gate_beta * delta)
+
+        return h
+
+    def forward(self, x: torch.Tensor, gsd: torch.Tensor = None) -> torch.Tensor:
+        """
+        Forward pass with optional GSD-based gating.
+
+        Args:
+            x: [B, seq_len, in_features] - input tensor
+            gsd: [B] or scalar - ground sample distance in meters.
+                  If None, gating is disabled (all gates = 1.0)
+
+        Returns:
+            output: [B, seq_len, out_features]
+        """
+        # Compute LoRA projection: Ax
+        # x: [B, seq_len, in_features]
+        # lora_A: [in_features, rank]
+        # result: [B, seq_len, rank]
+        lora_out = x @ self.lora_A  # [B, seq_len, rank]
+        lora_out = self.dropout(lora_out)
+
+        # Apply gating if GSD is provided
+        if gsd is not None:
+            h = self.compute_gating(gsd)  # [B, rank]
+            # Apply gating: diag(h(s)) * Ax
+            # h: [B, rank]
+            # lora_out: [B, seq_len, rank]
+            lora_out = lora_out * h.unsqueeze(1)  # [B, seq_len, rank]
+
+        # B: [rank, out_features]
+        # result: [B, seq_len, out_features]
+        lora_out = lora_out @ self.lora_B
+
+        # Apply scaling
+        lora_out = lora_out * self.scaling
+
+        return lora_out
+
+
+class GatedLoRALinear(nn.Module):
+    """
+    Wrapper that replaces a linear layer with a Gated LoRA version.
+
+    The original weight W is frozen, and LoRA augmentation is added:
+        output = Wx + B * diag(h(s)) * Ax
+    """
+
+    def __init__(
+        self,
+        original_layer: nn.Linear,
+        rank: int = 16,
+        alpha: int = 32,
+        dropout: float = 0.05,
+    ):
+        super().__init__()
+        self.original_layer = original_layer
+        self.in_features = original_layer.in_features
+        self.out_features = original_layer.out_features
+
+        # Freeze original weights
+        original_layer.weight.requires_grad = False
+        if original_layer.bias is not None:
+            original_layer.bias.requires_grad = False
+
+        # Create Gated LoRA
+        self.gated_lora = GatedLoRA(
+            in_features=self.in_features,
+            out_features=self.out_features,
+            rank=rank,
+            alpha=alpha,
+            dropout=dropout,
+        )
+
+    def forward(self, x: torch.Tensor, gsd: torch.Tensor = None) -> torch.Tensor:
+        """
+        Forward pass with GSD-aware LoRA.
+
+        Args:
+            x: [B, seq_len, in_features]
+            gsd: [B] or scalar - ground sample distance
+
+        Returns:
+            output: [B, seq_len, out_features]
+        """
+        # Original frozen layer
+        original_out = self.original_layer(x)
+
+        # Gated LoRA augmentation
+        lora_out = self.gated_lora(x, gsd)
+
+        return original_out + lora_out
+
+
+def apply_gated_lora(
+    model: nn.Module,
+    target_modules: List[str],
+    rank: int = 16,
+    alpha: int = 32,
+    dropout: float = 0.05,
+) -> List[GatedLoRALinear]:
+    """
+    Apply Gated LoRA to specified target modules in a model.
+
+    Args:
+        model: The model to modify
+        target_modules: List of module names to apply LoRA to (e.g., ["q_proj", "k_proj"])
+        rank: LoRA rank
+        alpha: LoRA scaling factor
+        dropout: Dropout probability
+
+    Returns:
+        List of GatedLoRALinear modules that were created
+    """
+    gated_lora_modules = []
+
+    for name, module in model.named_modules():
+        if isinstance(module, nn.Linear):
+            # Check if this module is one of the target modules
+            module_name = name.split('.')[-1]
+            if module_name in target_modules:
+                # Replace with GatedLoRALinear
+                parent_name = '.'.join(name.split('.')[:-1])
+                child_name = name.split('.')[-1]
+
+                parent = model
+                if parent_name:
+                    for part in parent_name.split('.'):
+                        parent = getattr(parent, part)
+
+                # Create GatedLoRALinear wrapper
+                gated_lora = GatedLoRALinear(
+                    original_layer=module,
+                    rank=rank,
+                    alpha=alpha,
+                    dropout=dropout,
+                )
+
+                # Replace the module
+                setattr(parent, child_name, gated_lora)
+                gated_lora_modules.append(gated_lora)
+
+                print(f"[apply_gated_lora] Applied Gated LoRA to {name}")
+
+    return gated_lora_modules
+
+
+# ---------------------------------------------------------------------------
+# SAR Encoder
+# ---------------------------------------------------------------------------
+
+
 def build_sar_encoder(
     checkpoint_path: str,
     freeze: bool = True,
@@ -121,7 +366,7 @@ def build_sar_encoder(
         in_chans=1,
         img_size=512,
     )
-    print("check point path is ",checkpoint_path)
+    print(f"[build_sar_encoder] Loading checkpoint from: {checkpoint_path}")
     # Load checkpoint — handle various save formats
     state = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
     
@@ -141,7 +386,7 @@ def build_sar_encoder(
         backbone.requires_grad_(False)
         backbone.eval()
 
-    return _SAREncoderWrapper(backbone, d_sar=d_sar)
+    return _SAREncoderWrapper(backbone)
 
 
 class _SAREncoderWrapper(nn.Module):
@@ -150,10 +395,9 @@ class _SAREncoderWrapper(nn.Module):
     [B, N_visual, d_sar] by selecting f3 and spatially flattening.
     """
 
-    def __init__(self, backbone: nn.Module, d_sar: int = 1024):
+    def __init__(self, backbone: nn.Module):
         super().__init__()
         self.backbone = backbone
-        self.d_sar = d_sar
 
     def forward(self, sar_input: torch.Tensor) -> torch.Tensor:
         """
@@ -200,7 +444,8 @@ class SARVLM(nn.Module):
     DEFAULT_LORA_R = 16
     DEFAULT_LORA_ALPHA = 32
     DEFAULT_LORA_DROPOUT = 0.05
-    DEFAULT_LORA_TARGETS = ["q_proj", "k_proj", "v_proj", "o_proj"]
+    DEFAULT_LORA_TARGETS = ["q_proj", "k_proj", "v_proj", "o_proj"] # Wx+BAx is seperately applied on these layers only
+    # lora will seperately apply the lora projections only on Q,K, V, and O=sm(QKT/root(d))V
 
     def __init__(
         self,
@@ -212,11 +457,13 @@ class SARVLM(nn.Module):
         lora_dropout: float = DEFAULT_LORA_DROPOUT,
         lora_target_modules: list = None,
         apply_lora: bool = True,
+        georope_adapter: Optional[nn.Module] = None,
     ):
         super().__init__()
 
         self.sar_encoder = sar_encoder
         self.projector = projector
+        self.georope_adapter = georope_adapter
 
         # Keep a direct reference to the inner HybridLlamaModel BEFORE PEFT
         # wraps the attention projections.  PEFT modifies the linear layers
@@ -241,6 +488,8 @@ class SARVLM(nn.Module):
         # Ensure encoder is frozen and projector is trainable.
         self._freeze_encoder()
         self.projector.requires_grad_(True)
+        if self.georope_adapter is not None:
+            self.georope_adapter.requires_grad_(True)
 
         self._print_trainable_params()
 
@@ -257,6 +506,14 @@ class SARVLM(nn.Module):
         n_visual: int = 256,
         projector_hidden_dim: Optional[int] = None,
         torch_dtype=torch.float16,
+        use_georope_adapter: bool = True,
+        georope_bottleneck_dim: int = 256,
+        georope_num_heads: int = 4,
+        georope_gcc_alpha: float = 0.5,
+        georope_gfc_hidden_dim: int = 64,
+        georope_zero_init_output: bool = False,
+        low_memory_load: bool = False,
+        load_cpu: bool = False,
         **kwargs,
     ) -> "SARVLM":
         """
@@ -272,6 +529,19 @@ class SARVLM(nn.Module):
             n_visual: Number of visual tokens (256 for 512px/f3).
             projector_hidden_dim: Inner MLP dim for SARProjector.
             torch_dtype: dtype for Vicuna weights.
+            use_georope_adapter: Build a GeoRoPEVisualAdapter (ground-aware
+                2D rotary correction over the visual tokens) if True.
+            georope_bottleneck_dim, georope_num_heads, georope_gcc_alpha,
+                georope_gfc_hidden_dim, georope_zero_init_output: Passed
+                straight through to GeoRoPEVisualAdapter.
+            low_memory_load: If True, load Vicuna straight into
+                HybridLlamaForCausalLM (one copy in RAM, ~half the peak)
+                instead of loading a stock model and copying its weights
+                into a second one. Raises if any weight is missing. Off by
+                default so existing callers keep the original load path.
+            load_cpu: If False (default), load Vicuna directly to GPU.
+                If True, load on CPU first then move to GPU (for memory-constrained systems).
+                When load_cpu=False, this overrides low_memory_load behavior.
             **kwargs: Extra arguments passed to SARVLM.__init__.
         """
         from transformers import AutoModelForCausalLM, AutoConfig
@@ -281,33 +551,71 @@ class SARVLM(nn.Module):
         config._attn_implementation = "eager"
 
         print(f"[SARVLM] Loading Vicuna weights from {vicuna_path} ...")
-        
-        # Load weights on CPU first to avoid GPU OOM during loading
-        from transformers import AutoModelForCausalLM
-        vicuna_base = AutoModelForCausalLM.from_pretrained(
-            vicuna_path,
-            torch_dtype=torch_dtype,
-            attn_implementation="eager",
-            low_cpu_mem_usage=True,
-        )
-        
-        # Build HybridLlamaForCausalLM
-        hybrid_vicuna = HybridLlamaForCausalLM(config)
-        
-        # Copy weights from CPU to hybrid_vicuna
-        # copy weights from CPU to hybrid vicuna
-        print("[SARVLM] Copying Vicuna weights to hybrid vicuna...")
-        result = hybrid_vicuna.load_state_dict(vicuna_base.state_dict(), strict=True)
-        if result.missing_keys or result.unexpected_keys:
-            print(f"[SARVLM] WARNING — missing: {result.missing_keys}, "
-                  f"unexpected: {result.unexpected_keys}")
-        else:
-            print("[SARVLM] Vicuna weights loaded successfully (0 missing, 0 unexpected).")
 
-        # Immediately delete vicuna_base and force garbage collection
-        del vicuna_base
-        import gc
-        gc.collect()
+        # Direct GPU loading when load_cpu=False (faster, no CPU intermediate steps)
+        if not load_cpu:
+            print("[SARVLM] Loading Vicuna directly to GPU...")
+            hybrid_vicuna, info = HybridLlamaForCausalLM.from_pretrained(
+                vicuna_path,
+                config=config,
+                torch_dtype=torch_dtype,
+                attn_implementation="eager",
+                low_cpu_mem_usage=True,
+                device_map="cuda",  # Direct GPU loading
+                output_loading_info=True,
+            )
+            if info.get("missing_keys"):
+                raise RuntimeError(
+                    f"[SARVLM] Vicuna weights missing from checkpoint: {info['missing_keys']}"
+                )
+            if info.get("unexpected_keys"):
+                print(f"[SARVLM] WARNING — unexpected checkpoint keys ignored: "
+                      f"{info['unexpected_keys']}")
+            print("[SARVLM] Vicuna weights loaded successfully (0 missing).")
+        elif low_memory_load:
+            # Single copy in RAM: keys of the hybrid model match Vicuna's.
+            hybrid_vicuna, info = HybridLlamaForCausalLM.from_pretrained(
+                vicuna_path,
+                config=config,
+                torch_dtype=torch_dtype,
+                attn_implementation="eager",
+                low_cpu_mem_usage=True,
+                output_loading_info=True,
+            )
+            # from_pretrained only warns on missing weights (they'd be left
+            # randomly initialised), so fail loudly like strict=True did.
+            if info.get("missing_keys"):
+                raise RuntimeError(
+                    f"[SARVLM] Vicuna weights missing from checkpoint: {info['missing_keys']}"
+                )
+            if info.get("unexpected_keys"):
+                print(f"[SARVLM] WARNING — unexpected checkpoint keys ignored: "
+                      f"{info['unexpected_keys']}")
+            print("[SARVLM] Vicuna weights loaded successfully (0 missing).")
+        else:
+            # Load weights on CPU first to avoid GPU OOM during loading
+            vicuna_base = AutoModelForCausalLM.from_pretrained(
+                vicuna_path,
+                torch_dtype=torch_dtype,
+                attn_implementation="eager",
+                low_cpu_mem_usage=True,
+            )
+
+            # Build HybridLlamaForCausalLM
+            hybrid_vicuna = HybridLlamaForCausalLM(config)
+
+            # Copy weights from CPU to hybrid_vicuna
+            print("[SARVLM] Copying Vicuna weights to hybrid vicuna...")
+            result = hybrid_vicuna.load_state_dict(vicuna_base.state_dict(), strict=True)
+            if result.missing_keys or result.unexpected_keys:
+                print(f"[SARVLM] WARNING — missing: {result.missing_keys}, "
+                      f"unexpected: {result.unexpected_keys}")
+            else:
+                print("[SARVLM] Vicuna weights loaded successfully (0 missing, 0 unexpected).")
+
+            # Immediately delete vicuna_base and force garbage collection
+            del vicuna_base
+            gc.collect()
 
         # SAR encoder
         if sar_encoder is None:
@@ -324,8 +632,22 @@ class SARVLM(nn.Module):
         # Cast projector to match LLM dtype
         projector = projector.to(dtype=torch_dtype)
 
+        # GeoRoPE visual adapter (ground-aware 2D rotary correction)
+        georope_adapter = None
+        if use_georope_adapter:
+            georope_adapter = GeoRoPEVisualAdapter(
+                llm_hidden_size=llm_hidden_size,
+                n_visual=n_visual,
+                bottleneck_dim=georope_bottleneck_dim,
+                num_heads=georope_num_heads,
+                gcc_alpha=georope_gcc_alpha,
+                gfc_hidden_dim=georope_gfc_hidden_dim,
+                zero_init_output=georope_zero_init_output,
+            )
+            georope_adapter = georope_adapter.to(dtype=torch_dtype)
+
         return cls(sar_encoder=sar_encoder, projector=projector,
-                   hybrid_vicuna=hybrid_vicuna, **kwargs)
+                   hybrid_vicuna=hybrid_vicuna, georope_adapter=georope_adapter, **kwargs)
 
     # ------------------------------------------------------------------
     # LoRA
@@ -380,6 +702,20 @@ class SARVLM(nn.Module):
     # Forward pass (training / single inference)
     # ------------------------------------------------------------------
 
+    def _get_embed_fn(self):
+        """Input-embedding lookup, whether or not PEFT/LoRA wraps the model."""
+        if hasattr(self.hybrid_vicuna, "base_model") and hasattr(self.hybrid_vicuna.base_model, "model"):
+            return self.hybrid_vicuna.base_model.model.get_input_embeddings()
+        return self.hybrid_vicuna.get_input_embeddings()
+
+    @staticmethod
+    def _prepend_visual_mask(attention_mask: Optional[torch.Tensor], B: int, N_v: int):
+        """Prepend N_v all-ones positions (visual tokens are never padding)."""
+        if attention_mask is None:
+            return None
+        visual_attn = torch.ones(B, N_v, dtype=attention_mask.dtype, device=attention_mask.device)
+        return torch.cat([visual_attn, attention_mask], dim=1)
+
     def _encode_sar(self, sar_input: torch.Tensor) -> torch.Tensor:
         """
         Run the SAR encoder (frozen) and return [B, N_visual, d_sar].
@@ -403,6 +739,7 @@ class SARVLM(nn.Module):
         input_ids: torch.LongTensor,
         attention_mask: Optional[torch.Tensor] = None,
         labels: Optional[torch.LongTensor] = None,
+        gsd_ratio: Optional[torch.Tensor] = None,
     ):
         """
         Training / single-pass inference forward.
@@ -412,6 +749,9 @@ class SARVLM(nn.Module):
             input_ids: [B, N_text] — tokenised question [+ answer] ids
             attention_mask: [B, N_text] — 1 for real tokens, 0 for padding
             labels: [B, N_text] — -100 for question/padding, token ids for answers
+            gsd_ratio: [B] optional per-sample (ground_distance_per_token /
+                reference_ground_distance), forwarded to the GeoRoPE adapter's
+                GCC calibration. None => identity (G=1) for every sample.
 
         Returns:
             CausalLMOutputWithPast (contains .loss if labels provided)
@@ -426,31 +766,21 @@ class SARVLM(nn.Module):
         """
         B = sar_input.shape[0]
 
-        # 1. SAR encoder (frozen) → projector (trainable)
+        # 1. SAR encoder (frozen) → projector (trainable) → GeoRoPE adapter
         sar_features = self._encode_sar(sar_input)         # [B, N_v, d_sar]
         sar_tokens = self.projector(sar_features)           # [B, N_v, H]
+        if self.georope_adapter is not None:
+            sar_tokens = self.georope_adapter(sar_tokens, gsd_ratio=gsd_ratio)
         N_v = sar_tokens.shape[1]
 
         # 2. Text embeddings from Vicuna's embedding table
-        if hasattr(self.hybrid_vicuna, "base_model") and hasattr(self.hybrid_vicuna.base_model, "model"):
-            # PEFT-wrapped model (LoRA applied)
-            embed_fn = self.hybrid_vicuna.base_model.model.get_input_embeddings()
-        else:
-            # Direct model (no LoRA)
-            embed_fn = self.hybrid_vicuna.get_input_embeddings()
-        text_embeds = embed_fn(input_ids)                  # [B, N_t, H]
+        text_embeds = self._get_embed_fn()(input_ids)      # [B, N_t, H]
 
         # 3. Concatenate: [SAR tokens | text tokens]
         inputs_embeds = torch.cat([sar_tokens, text_embeds], dim=1)  # [B, N_v+N_t, H]
 
         # 4. Extend attention mask to cover visual tokens
-        if attention_mask is not None:
-            visual_attn = torch.ones(
-                B, N_v, dtype=attention_mask.dtype, device=attention_mask.device
-            )
-            full_attention_mask = torch.cat([visual_attn, attention_mask], dim=1)
-        else:
-            full_attention_mask = None
+        full_attention_mask = self._prepend_visual_mask(attention_mask, B, N_v)
 
         # 5. Extend labels: prepend -100 for every visual position
         if labels is not None:
@@ -479,6 +809,7 @@ class SARVLM(nn.Module):
         sar_input: torch.Tensor,
         input_ids: torch.LongTensor,
         attention_mask: Optional[torch.Tensor] = None,
+        gsd_ratio: Optional[torch.Tensor] = None,
         **generate_kwargs,
     ):
         """
@@ -506,31 +837,20 @@ class SARVLM(nn.Module):
         """
         B = sar_input.shape[0]
 
-        # Compute visual tokens (frozen encoder + trainable projector)
+        # Compute visual tokens (frozen encoder + trainable projector + adapter)
         with torch.no_grad():
             sar_features = self._encode_sar(sar_input)
             sar_tokens = self.projector(sar_features)
+            if self.georope_adapter is not None:
+                sar_tokens = self.georope_adapter(sar_tokens, gsd_ratio=gsd_ratio)
 
         N_v = sar_tokens.shape[1]
 
-        if hasattr(self.hybrid_vicuna, "base_model") and hasattr(self.hybrid_vicuna.base_model, "model"):
-            # PEFT-wrapped model (LoRA applied)
-            embed_fn = self.hybrid_vicuna.base_model.model.get_input_embeddings()
-        else:
-            # Direct model (no LoRA)
-            embed_fn = self.hybrid_vicuna.get_input_embeddings()
         with torch.no_grad():
-            text_embeds = embed_fn(input_ids)
+            text_embeds = self._get_embed_fn()(input_ids)
 
         inputs_embeds = torch.cat([sar_tokens, text_embeds], dim=1)
-
-        if attention_mask is not None:
-            visual_attn = torch.ones(
-                B, N_v, dtype=attention_mask.dtype, device=attention_mask.device
-            )
-            full_mask = torch.cat([visual_attn, attention_mask], dim=1)
-        else:
-            full_mask = None
+        full_mask = self._prepend_visual_mask(attention_mask, B, N_v)
 
         # Tell the inner LlamaModel how many visual positions to treat
         # bidirectionally.  This persists across all generate() steps.

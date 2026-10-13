@@ -1,0 +1,19 @@
+============================================================
+Dataset Statistics: train_jsonl (primary)
+============================================================
+
+JSONL Path: /home/saishruti/Research1/Shreyank_20_credit/DataGen/data/train_added.jsonl
+Data Root: /home/saishruti/Research1/Shreyank_20_credit/DataGen/
+Sample Size: 5000
+Random Seed: 42
+
+Pixel Statistics:
+----------------------------------------
+Mean:          49.548214
+Std:           34.795639
+Min:           0.000000
+Max:           255.000000
+Num Images:    5000
+Num Pixels:    1,310,720,000
+
+============================================================

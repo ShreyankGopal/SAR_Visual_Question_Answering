@@ -1,0 +1,19 @@
+============================================================
+Dataset Statistics: train_jsonl_4
+============================================================
+
+JSONL Path: /home/saishruti/Research1/Shreyank_20_credit/DataGen/sar_vqa/output/sar_aircraft/data/train.jsonl
+Data Root: /home/saishruti/Research1/Shreyank_20_credit/DataGen/sar_vqa/output/sar_aircraft/tiles/
+Sample Size: 5000
+Random Seed: 42
+
+Pixel Statistics:
+----------------------------------------
+Mean:          22.408403
+Std:           32.794400
+Min:           0.000000
+Max:           255.000000
+Num Images:    5000
+Num Pixels:    1,310,720,000
+
+============================================================

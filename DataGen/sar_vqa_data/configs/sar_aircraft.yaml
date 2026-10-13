@@ -1,0 +1,86 @@
+# configs/sar_aircraft.yaml
+dataset: SAR-AIRcraft
+adapter: sar_aircraft
+
+data:
+  raw_root:     /mnt/data/shruti/SAR_VQA_Data/SAR-AIRcraft-1.0/origin_data
+  root:         /home/saishruti/Research1/Shreyank_20_credit/DataGen/sar_vqa/output/sar_aircraft/tiles   # tiles written here
+  clean_jsonl:  /home/saishruti/Research1/Shreyank_20_credit/DataGen/sar_vqa/output/sar_aircraft/clean.jsonl
+  tile_size:    512
+  stretch_percentiles: null    # per-tile contrast stretch applied when saving
+  min_visible_fraction: 0.25          # aircraft cut by the tile edge: keep if >= 25% visible (flagged truncated)
+  empty_share:  0.15                  # tiles without aircraft, as a share of kept tiles per split
+  stated_resolution_m: 1.0            # dataset's stated resolution; pixel spacing ~0.5 m from aircraft sizes
+
+output:
+  base_dir:    /home/saishruti/Research1/Shreyank_20_credit/DataGen/sar_vqa/output/sar_aircraft
+  facts_dir:   intermediate_facts
+  reports_dir: reports
+  data_dir:    data
+
+pipeline:
+  random_seed: 42
+  max_qa_per_image: 22
+  max_per_category: 3
+  model_input_size: 512      # tiles are native 512 -> gsd_m 0.5, resample_factor 1.0
+
+classes:
+  Aircraft: {singular: aircraft, plural: aircraft}
+
+native_gsd_m: {SAR-AIRcraft: 0.5}
+
+grid_regions:
+  top_left:      [0.0000, 0.0000, 0.3333, 0.3333]
+  top_center:    [0.3333, 0.0000, 0.6667, 0.3333]
+  top_right:     [0.6667, 0.0000, 1.0000, 0.3333]
+  middle_left:   [0.0000, 0.3333, 0.3333, 0.6667]
+  center:        [0.3333, 0.3333, 0.6667, 0.6667]
+  middle_right:  [0.6667, 0.3333, 1.0000, 0.6667]
+  bottom_left:   [0.0000, 0.6667, 0.3333, 1.0000]
+  bottom_center: [0.3333, 0.6667, 0.6667, 1.0000]
+  bottom_right:  [0.6667, 0.6667, 1.0000, 1.0000]
+
+categories_per_source:
+  SAR-AIRcraft: [object_counting, regional_vqa, comparative_spatial, region_grounding, object_relations,
+                 global_quantitative, sar_bbox_variance, sar_comparative, relative_size]
+
+reference:
+  point_min_sep_px: 20
+  min_length_px: 10
+
+grounding:
+  min_size: 0.08
+  max_size: 0.30
+  num_regions: 3
+  referring: cues
+  referring_sources: [SAR-AIRcraft]
+  longest_cue: the largest aircraft       # uses the size ratio below (>= 1.45, heading-proof)
+  presence_over_object: 0.5
+
+sar:
+  bright_percentile: 90
+
+sar_bbox_variance:
+  num_regions: 2
+  min_size: 0.10
+  max_size: 0.35
+  bins: [[0, 60.4, "Low"], [60.4, 545.5, "Medium"], [545.5, 1.0e+12, "High"]]   # SAR-AIRcraft tertiles (raw tiles)
+
+thresholds:
+  coverage_bins: [[0, 2, "less than 2%"], [2, 5, "about 2–5%"], [5, 10, "about 5–10%"], [10, 101, "more than 10%"]]
+  spatial_min_count_diff: 1
+  sar_min_intensity_diff: 15          # provisional: stretched tiles change the scale, check inspect section 6
+  size_min_length_ratio: 1.45         # a diagonal aircraft's box is up to 1.41x larger, so only larger ratios are real
+  relation_min_nn2_ratio: 1.2
+  relation_dir_margin_deg: 7.5
+  referring_min_gap: 0.02
+
+balance:
+  object_counting:     {rule: zero_cap, share: 0.2}
+  regional_vqa:        {rule: yes_no}
+  comparative_spatial: {rule: ab}
+  region_grounding:    {rule: yes_no}
+  global_quantitative: {rule: cap_share, share: 0.35}
+  sar_bbox_variance:   {rule: cap_share, share: 0.4}
+  sar_comparative:     {rule: ab}
+  relative_size:       {rule: ab}

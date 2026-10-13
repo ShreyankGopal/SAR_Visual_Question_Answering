@@ -1,0 +1,19 @@
+============================================================
+Dataset Statistics: train_jsonl_3
+============================================================
+
+JSONL Path: /home/saishruti/Research1/Shreyank_20_credit/DataGen/sar_vqa/output/ogsod/data/train.jsonl
+Data Root: /mnt/data/shruti/SAR_VQA_Data/OGSOD/
+Sample Size: 5000
+Random Seed: 42
+
+Pixel Statistics:
+----------------------------------------
+Mean:          127.722116
+Std:           67.141767
+Min:           0.000000
+Max:           255.000000
+Num Images:    5000
+Num Pixels:    327,680,000
+
+============================================================

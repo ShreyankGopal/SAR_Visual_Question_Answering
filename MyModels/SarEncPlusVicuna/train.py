@@ -31,8 +31,10 @@ Resuming:
 
 import argparse
 import functools
+import gc
 import os
 import re
+import shutil
 import time
 import yaml
 import torch
@@ -72,12 +74,16 @@ def find_latest_checkpoint(save_dir):
     return os.path.join(save_dir, max(steps)[1]) if steps else None
 
 
-def save_checkpoint(vlm, optimizer, scaler, save_dir, global_step, epoch, log_file=None):
+def save_checkpoint(vlm, optimizer, scaler, save_dir, global_step, epoch, log_file=None, keep_last=2):
     """
     Save LoRA adapters, the projector, optimizer/scaler state, and the
     global_step/epoch counters, so training can resume exactly. Kept
     independent of validation/sampling so a failure there can't block
     checkpointing.
+
+    keep_last: after saving, deletes all but the most recent `keep_last`
+    step_N checkpoint dirs under save_dir, so disk usage doesn't grow
+    unbounded over a long run.
     """
     checkpoint_dir = os.path.join(save_dir, f"step_{global_step}")
     os.makedirs(checkpoint_dir, exist_ok=True)
@@ -86,6 +92,11 @@ def save_checkpoint(vlm, optimizer, scaler, save_dir, global_step, epoch, log_fi
 
     vlm.hybrid_vicuna.save_pretrained(checkpoint_dir)
     torch.save(vlm.projector.state_dict(), os.path.join(checkpoint_dir, "projector.pth"))
+    if vlm.georope_adapter is not None:
+        torch.save(
+            vlm.georope_adapter.state_dict(),
+            os.path.join(checkpoint_dir, "georope_adapter.pth"),
+        )
     torch.save(
         {
             "global_step": global_step,
@@ -97,6 +108,18 @@ def save_checkpoint(vlm, optimizer, scaler, save_dir, global_step, epoch, log_fi
     )
 
     log(f"Checkpoint saved successfully at step {global_step}.", log_file)
+
+    # Prune old checkpoints, keeping only the most recent `keep_last`.
+    steps = []
+    for name in os.listdir(save_dir):
+        match = re.fullmatch(r"step_(\d+)", name)
+        if match and os.path.isdir(os.path.join(save_dir, name)):
+            steps.append((int(match.group(1)), name))
+    steps.sort()
+    for _, name in steps[:-keep_last]:
+        shutil.rmtree(os.path.join(save_dir, name))
+        log(f"Removed old checkpoint: {name}", log_file)
+
     return checkpoint_dir
 
 
@@ -123,6 +146,17 @@ def load_model_weights(vlm, checkpoint_path, device, log_file=None):
             f"projector weights were NOT restored from the checkpoint.",
             log_file,
         )
+
+    if vlm.georope_adapter is not None:
+        georope_path = os.path.join(checkpoint_path, "georope_adapter.pth")
+        if os.path.exists(georope_path):
+            vlm.georope_adapter.load_state_dict(torch.load(georope_path, map_location=device))
+        else:
+            log(
+                f"WARNING: no georope_adapter.pth found at {georope_path} -- "
+                f"GeoRoPE adapter weights were NOT restored (starting from fresh init).",
+                log_file,
+            )
 
 
 def load_training_state(optimizer, scaler, checkpoint_path, log_file=None):
@@ -184,8 +218,19 @@ def parse_args():
 
 
 @torch.no_grad()
-def run_validation(vlm, val_loader, device, log_file=None):
-    """Run one full pass over val_loader, returning the average loss."""
+def run_validation(
+    vlm, val_loader, device, log_file=None,
+    intermediate_outputs=None, cka_loss_fn=None, is_CKA=False, lambda_CKA=0.01,
+):
+    """
+    Run one full pass over val_loader, returning the average loss.
+
+    intermediate_outputs/cka_loss_fn/is_CKA/lambda_CKA: optional CKA
+    diagnostics. intermediate_outputs is the same dict main()'s forward
+    hooks write into; when is_CKA is True and it's populated, this logs the
+    CKA value/loss between the SAR encoder output and the LLM's penultimate
+    layer for each batch. Does not affect the returned validation loss.
+    """
     vlm.eval()
 
     total_val_loss = 0.0
@@ -199,6 +244,7 @@ def run_validation(vlm, val_loader, device, log_file=None):
         input_ids = batch["input_ids"].to(device)
         attention_mask = batch["attention_mask"].to(device)
         labels = batch["labels"].to(device)
+        gsd_ratio = batch["gsd_ratio"].to(device) if "gsd_ratio" in batch else None
 
         with torch.cuda.amp.autocast(enabled=torch.cuda.is_available()):
             outputs = vlm(
@@ -206,6 +252,7 @@ def run_validation(vlm, val_loader, device, log_file=None):
                 input_ids=input_ids,
                 attention_mask=attention_mask,
                 labels=labels,
+                gsd_ratio=gsd_ratio,
             )
 
         loss = outputs.loss
@@ -213,33 +260,23 @@ def run_validation(vlm, val_loader, device, log_file=None):
         num_batches += 1
         val_pbar.set_postfix({"loss": f"{loss.item():.4f}"})
 
-        # Access intermediate outputs if hooks are active
-        if intermediate_outputs is not None:
+        if intermediate_outputs:
             encoder_output = intermediate_outputs['encoder_output']
             penultimate_hidden = intermediate_outputs['penultimate_hidden']
-            final_hidden = intermediate_outputs['final_hidden']
 
-            # Compute CKA loss during validation if enabled
-            if is_CKA and cka_loss_fn is not None:
-                # Pool encoder output: [B, N_visual, d_sar] -> [B, d_sar]
-                encoder_pooled = encoder_output.mean(dim=1)  # [B, d_sar]
-
-                # Pool LLM penultimate layer: [B, N_visual+N_text, hidden_size] -> [B, hidden_size]
+            # CKA needs >= 2 samples; a short final batch can have just 1.
+            if is_CKA and cka_loss_fn is not None and encoder_output.shape[0] >= 2:
+                encoder_pooled = encoder_output.mean(dim=1)          # [B, d_sar]
                 llm_penultimate_pooled = penultimate_hidden.mean(dim=1)  # [B, hidden_size]
-
-                # Compute CKA loss between encoder and penultimate LLM layer
                 val_cka_loss, val_cka_value = cka_loss_fn(encoder_pooled, llm_penultimate_pooled)
 
-                # Log CKA statistics during validation
                 if num_batches % 10 == 0:
                     log(
                         f"Validation batch {num_batches} - CKA value: {val_cka_value.item():.4f}, "
                         f"CKA loss: {val_cka_loss.item():.4f}",
-                        log_file
+                        log_file,
                     )
 
-        # Clear intermediate outputs after validation
-        if intermediate_outputs is not None:
             intermediate_outputs.clear()
 
     if num_batches == 0:
@@ -251,7 +288,7 @@ def run_validation(vlm, val_loader, device, log_file=None):
 
 
 @torch.no_grad()
-def generate_samples(vlm, val_dataset, tokenizer, device, num_samples=2, log_file=None):
+def generate_samples(vlm, val_dataset, tokenizer, device, num_samples=2, log_file=None, ref_gsd_m=None):
     """Generate a few sample outputs from the validation set (spot-checking, not full eval)."""
     vlm.eval()
     num_samples = min(num_samples, len(val_dataset))
@@ -264,9 +301,6 @@ def generate_samples(vlm, val_dataset, tokenizer, device, num_samples=2, log_fil
             # Keep SAR input FP32 -- the frozen SAR encoder has FP32 weights.
             sar_input = sample["sar_input"].unsqueeze(0).to(device, dtype=torch.float32)
 
-            # Clear CUDA cache before generation to prevent memory buildup
-            torch.cuda.empty_cache()
-
             input_ids = sample["input_ids"]
             labels = sample["labels"]
 
@@ -275,10 +309,17 @@ def generate_samples(vlm, val_dataset, tokenizer, device, num_samples=2, log_fil
             prompt_ids = input_ids[prompt_mask].unsqueeze(0).to(device)
             prompt_attention_mask = torch.ones_like(prompt_ids).to(device)
 
+            gsd_ratio = None
+            if ref_gsd_m is not None:
+                sample_gsd_m = sample.get("gsd_m")
+                ratio = (sample_gsd_m / ref_gsd_m) if sample_gsd_m is not None else 1.0
+                gsd_ratio = torch.tensor([ratio], dtype=torch.float32, device=device)
+
             output_ids = vlm.generate(
                 sar_input=sar_input,
                 input_ids=prompt_ids,
                 attention_mask=prompt_attention_mask,
+                gsd_ratio=gsd_ratio,
                 max_new_tokens=50,
                 do_sample=False,
             )
@@ -288,46 +329,48 @@ def generate_samples(vlm, val_dataset, tokenizer, device, num_samples=2, log_fil
             )
             log(f"Sample {i + 1}: {generated_text.strip()}", log_file)
 
-            # Clean up memory after each sample
-            torch.cuda.empty_cache()
-
         except Exception as e:
             # Don't let one bad sample kill training.
             log(f"Sampling failed for sample {i + 1}: {type(e).__name__}: {e}", log_file)
-
-            # Clean up memory after failed sample
-            torch.cuda.empty_cache()
 
 #####
 # building dataset here
 #####
 def build_dataset(c_data, split: str, tokenizer, max_length):
     """
-    Build a SARVLMDataset for the given split ("train"/"val"). If a second
-    dataset is configured (data.{split}_jsonl_2), it's subsampled down to the
-    primary dataset's record count and concatenated with it 1:1, so the two
-    stay balanced instead of the second dominating by size.
+    Build a SARVLMDataset for the given split ("train"/"val"). Supports any
+    number of extra datasets via data.{split}_jsonl_2, _3, _4, ... (each with
+    its own optional data_root_N, defaulting to data.data_root) -- stops at
+    the first missing N.
+
+    train: every extra source is subsampled down to the primary dataset's
+    *effective* record count -- i.e. after train_sample_size caps it (e.g.
+    50k/50k/50k...), or its full count if train_sample_size is null -- so no
+    single source dominates by size.
+    val: nothing is capped; every source contributes all of its records.
     """
-    # TODO: hardcoded to 2 sources; generalize to N sources if a 3rd
-    # dataset actually shows up.
-    primary_key = f"{split}_jsonl"
-    secondary_key = f"{split}_jsonl_2"
-    secondary_root_key = "data_root_2"
-
-    primary_path = c_data[primary_key]
+    primary_path = c_data[f"{split}_jsonl"]
     primary_root = c_data["data_root"]
+    primary_sample_size = c_data.get(f"{split}_sample_size") if split == "train" else None
 
-    sources = [{"jsonl_path": primary_path, "data_root": primary_root, "sample_size": None}]
+    sources = [{"jsonl_path": primary_path, "data_root": primary_root, "sample_size": primary_sample_size}]
 
-    secondary_path = c_data.get(secondary_key)
-    if secondary_path:
-        base_count = count_jsonl_records(primary_path)
-        secondary_root = c_data.get(secondary_root_key, primary_root)
+    base_count = None
+    n = 2
+    while True:
+        secondary_path = c_data.get(f"{split}_jsonl_{n}")
+        if not secondary_path:
+            break
+        if split == "train" and base_count is None:
+            base_count = count_jsonl_records(primary_path)
+            if primary_sample_size is not None:
+                base_count = min(base_count, primary_sample_size)
         sources.append({
             "jsonl_path": secondary_path,
-            "data_root": secondary_root,
+            "data_root": c_data.get(f"data_root_{n}", primary_root),
             "sample_size": base_count,
         })
+        n += 1
 
     return SARVLMDataset(
         sources=sources,
@@ -348,27 +391,13 @@ def main():
     c_model = config["model"]
     c_lora = config["lora"]
     c_train = config["training"]
+    c_georope = config.get("georope", {})
 
     os.makedirs(c_train["save_dir"], exist_ok=True)
+    shutil.copy(args.config, os.path.join(c_train["save_dir"], os.path.basename(args.config)))
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     log(f"Starting training on device: {device}", c_train["log_file"])
-
-    # Clear CUDA cache at the very start
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
-        log("Initial CUDA cache cleared", c_train["log_file"])
-
-        # Log initial memory state
-        memory_allocated = torch.cuda.memory_allocated(device) / 1024**3
-        memory_reserved = torch.cuda.memory_reserved(device) / 1024**3
-        memory_free = (torch.cuda.get_device_properties(device).total_memory -
-                      torch.cuda.memory_allocated(device)) / 1024**3
-        log(
-            f"Initial GPU Memory - Allocated: {memory_allocated:.2f} GB, "
-            f"Reserved: {memory_reserved:.2f} GB, Free: {memory_free:.2f} GB",
-            c_train["log_file"]
-        )
 
     # ---------------------------------------------------------
     # Tokenizer
@@ -387,24 +416,11 @@ def main():
     # ---------------------------------------------------------
     log("Loading SAR Encoder and Hybrid Vicuna Model...", c_train["log_file"])
 
-    # Aggressive CUDA cache clearing before model loading
-    torch.cuda.empty_cache()
-    import gc
-    gc.collect()
-    log("Cleared CUDA cache and garbage collected before model loading", c_train["log_file"])
-
-    # Log memory before loading
+    # Clear cache before loading
     if torch.cuda.is_available():
-        memory_allocated = torch.cuda.memory_allocated(device) / 1024**3
-        memory_reserved = torch.cuda.memory_reserved(device) / 1024**3
-        log(
-            f"Memory before model loading - Allocated: {memory_allocated:.2f} GB, "
-            f"Reserved: {memory_reserved:.2f} GB",
-            c_train["log_file"]
-        )
+        torch.cuda.empty_cache()
+        gc.collect()
 
-    # Load SAR encoder first (smaller, clears cache after)
-    log("Loading SAR encoder first...", c_train["log_file"])
     sar_encoder = build_sar_encoder(
         checkpoint_path=c_model["encoder_checkpoint"],
         freeze=True,
@@ -413,22 +429,10 @@ def main():
 
     log("SAR encoder loaded", c_train["log_file"])
 
-    # Clear cache after encoder loading to free memory for Vicuna
-    torch.cuda.empty_cache()
-    gc.collect()
-
-    # Log memory after encoder
+    # Clear cache after SAR encoder
     if torch.cuda.is_available():
-        memory_allocated = torch.cuda.memory_allocated(device) / 1024**3
-        memory_reserved = torch.cuda.memory_reserved(device) / 1024**3
-        log(
-            f"Memory after encoder - Allocated: {memory_allocated:.2f} GB, "
-            f"Reserved: {memory_reserved:.2f} GB",
-            c_train["log_file"]
-        )
-
-    # Now load Vicuna with aggressive memory management
-    log("Loading Vicuna model...", c_train["log_file"])
+        torch.cuda.empty_cache()
+        gc.collect()
 
     # Get load_cpu flag from config (default to False if not specified)
     load_cpu = c_model.get("load_cpu", False)
@@ -445,6 +449,14 @@ def main():
         lora_target_modules=c_lora["target_modules"],
         apply_lora=True,
         torch_dtype=torch.float32,
+        low_memory_load=True,
+        load_cpu=load_cpu,
+        use_georope_adapter=c_georope.get("enable", True),
+        georope_bottleneck_dim=c_georope.get("bottleneck_dim", 256),
+        georope_num_heads=c_georope.get("num_heads", 4),
+        georope_gcc_alpha=c_georope.get("gcc_alpha", 0.5),
+        georope_gfc_hidden_dim=c_georope.get("gfc_hidden_dim", 64),
+        georope_zero_init_output=c_georope.get("zero_init_output", False),
     )
 
     vlm.hybrid_vicuna.gradient_checkpointing_enable()
@@ -452,33 +464,20 @@ def main():
 
     log("Model moved to device", c_train["log_file"])
 
-    # Aggressive cache clearing after moving model to device
-    torch.cuda.empty_cache()
-    gc.collect()
-
-    # Log memory usage
+    # Clear CUDA cache after model loading
     if torch.cuda.is_available():
-        memory_allocated = torch.cuda.memory_allocated(device) / 1024**3
-        memory_reserved = torch.cuda.memory_reserved(device) / 1024**3
-        memory_free = (torch.cuda.get_device_properties(device).total_memory -
-                      torch.cuda.memory_allocated(device)) / 1024**3
-        log(
-            f"GPU Memory after moving - Allocated: {memory_allocated:.2f} GB, "
-            f"Reserved: {memory_reserved:.2f} GB, Free: {memory_free:.2f} GB",
-            c_train["log_file"]
-        )
+        torch.cuda.empty_cache()
+        gc.collect()
+        log("CUDA cache cleared after model loading", c_train["log_file"])
 
     # ---------------------------------------------------------
-    # CKA Loss initialization
+    # CKA loss initialization (encoder-vs-LLM representation alignment)
     # ---------------------------------------------------------
-
-    cka_loss_fn = None
-    if c_train["is_CKA"]:
-        cka_loss_fn = RBFCKALoss()
-        log(
-            f"CKA loss enabled with lambda={c_train['lambda_CKA']}",
-            c_train["log_file"]
-        )
+    is_CKA = c_train.get("is_CKA", False)
+    lambda_CKA = c_train.get("lambda_CKA", 0.01)
+    cka_loss_fn = RBFCKALoss() if is_CKA else None
+    if is_CKA:
+        log(f"CKA loss enabled with lambda={lambda_CKA}", c_train["log_file"])
 
     # ---------------------------------------------------------
     # Resume: locate a checkpoint (unless --no-resume) and restore weights
@@ -492,9 +491,11 @@ def main():
 
     if resume_path:
         load_model_weights(vlm, resume_path, device, c_train["log_file"])
-
-        # Clear cache after loading checkpoint
-        torch.cuda.empty_cache()
+        # Clear cache after checkpoint loading
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            gc.collect()
+            log("CUDA cache cleared after checkpoint loading", c_train["log_file"])
 
     # ---------------------------------------------------------
     # Dataset
@@ -509,11 +510,13 @@ def main():
         c_train["log_file"],
     )
 
+    ref_gsd_m = c_georope.get("ref_gsd_m")
+
     train_loader = DataLoader(
         train_dataset,
         batch_size=c_train["micro_batch_size"],
         shuffle=True,
-        collate_fn=functools.partial(collate_fn, tokenizer=tokenizer),
+        collate_fn=functools.partial(collate_fn, tokenizer=tokenizer, ref_gsd_m=ref_gsd_m),
         num_workers=4,
         pin_memory=True,
     )
@@ -522,7 +525,7 @@ def main():
         val_dataset,
         batch_size=c_train["micro_batch_size"],
         shuffle=False,
-        collate_fn=functools.partial(collate_fn, tokenizer=tokenizer),
+        collate_fn=functools.partial(collate_fn, tokenizer=tokenizer, ref_gsd_m=ref_gsd_m),
         num_workers=4,
         pin_memory=True,
     )
@@ -554,55 +557,27 @@ def main():
     NUM_SAMPLES = 2
 
     # ---------------------------------------------------------
-    # Setup hooks for intermediate outputs
+    # Hooks for CKA: capture SAR encoder output and the LLM's penultimate/
+    # final layer hidden states during each forward pass.
     # ---------------------------------------------------------
-
     intermediate_outputs = {}
-    hook_counter = [0]  # Use list to make it mutable in closure
+    encoder_handle = penultimate_handle = final_handle = None
 
-    def encoder_hook(module, input, output):
-        """Capture SAR encoder output"""
-        intermediate_outputs['encoder_output'] = output.detach()
+    if is_CKA:
+        def encoder_hook(module, input, output):
+            intermediate_outputs['encoder_output'] = output.detach()
 
-    def penultimate_hook(module, input, output):
-        """Capture penultimate layer hidden states"""
-        # The output is directly the hidden states tensor, not a tuple
-        # It has shape [batch_size, seq_len, hidden_size]
-        hidden_states = output.detach()
-        intermediate_outputs['penultimate_hidden'] = hidden_states
+        def penultimate_hook(module, input, output):
+            intermediate_outputs['penultimate_hidden'] = output.detach()
 
-        # Debug: log shape periodically
-        hook_counter[0] += 1
-        if hook_counter[0] % 10 == 0:
-            log(f"Penultimate hook captured shape: {hidden_states.shape}", c_train["log_file"])
+        def final_hook(module, input, output):
+            intermediate_outputs['final_hidden'] = output.detach()
 
-    def final_hook(module, input, output):
-        """Capture final layer hidden states"""
-        # The output is directly the hidden states tensor, not a tuple
-        # It has shape [batch_size, seq_len, hidden_size]
-        hidden_states = output.detach()
-        intermediate_outputs['final_hidden'] = hidden_states
-
-        # Debug: log shape periodically
-        if hook_counter[0] % 10 == 0:
-            log(f"Final hook captured shape: {hidden_states.shape}", c_train["log_file"])
-
-    # Register encoder hook
-    encoder_handle = vlm.sar_encoder.register_forward_hook(encoder_hook)
-
-    # Register penultimate layer hook
-    num_layers = vlm._llama_model_ref.config.num_hidden_layers
-    penultimate_layer = vlm._llama_model_ref.layers[num_layers - 2]
-    penultimate_handle = penultimate_layer.register_forward_hook(penultimate_hook)
-
-    # Register final layer hook
-    final_layer = vlm._llama_model_ref.layers[num_layers - 1]
-    final_handle = final_layer.register_forward_hook(final_hook)
-
-    log(
-        "Registered hooks for encoder output, penultimate and final LLM layers",
-        c_train["log_file"]
-    )
+        encoder_handle = vlm.sar_encoder.register_forward_hook(encoder_hook)
+        num_layers = vlm._llama_model_ref.config.num_hidden_layers
+        penultimate_handle = vlm._llama_model_ref.layers[num_layers - 2].register_forward_hook(penultimate_hook)
+        final_handle = vlm._llama_model_ref.layers[num_layers - 1].register_forward_hook(final_hook)
+        log("Registered hooks for encoder output, penultimate and final LLM layers", c_train["log_file"])
 
     # ---------------------------------------------------------
     # Training
@@ -622,6 +597,7 @@ def main():
             input_ids = batch["input_ids"].to(device)
             attention_mask = batch["attention_mask"].to(device)
             labels = batch["labels"].to(device)
+            gsd_ratio = batch["gsd_ratio"].to(device) if "gsd_ratio" in batch else None
 
             with torch.cuda.amp.autocast(enabled=torch.cuda.is_available()):
                 outputs = vlm(
@@ -629,8 +605,27 @@ def main():
                     input_ids=input_ids,
                     attention_mask=attention_mask,
                     labels=labels,
+                    gsd_ratio=gsd_ratio,
                 )
                 loss = outputs.loss / grad_acc_steps
+
+            cka_loss = torch.tensor(0.0, device=device, dtype=loss.dtype)
+            # CKA needs >= 2 samples; a short final batch can have just 1.
+            if (is_CKA and cka_loss_fn is not None and intermediate_outputs
+                    and intermediate_outputs['encoder_output'].shape[0] >= 2):
+                encoder_pooled = intermediate_outputs['encoder_output'].mean(dim=1)
+                llm_penultimate_pooled = intermediate_outputs['penultimate_hidden'].mean(dim=1)
+                cka_loss, cka_value = cka_loss_fn(encoder_pooled, llm_penultimate_pooled)
+                intermediate_outputs.clear()
+
+                if global_step % 10 == 0:
+                    log(
+                        f"Step {global_step} - CKA value: {cka_value.item():.4f}, "
+                        f"CKA loss: {cka_loss.item():.4f}",
+                        c_train["log_file"],
+                    )
+
+            total_loss = loss + (lambda_CKA * cka_loss) if is_CKA else loss
 
             scaler.scale(total_loss).backward()
 
@@ -641,12 +636,17 @@ def main():
                 scaler.update()
                 optimizer.zero_grad()
 
-            loss_val = loss.item() * grad_acc_steps
+            loss_val = total_loss.item() * grad_acc_steps
             total_train_loss += loss_val
             num_train_batches += 1
             global_step += 1
 
             pbar.set_postfix({"loss": f"{loss_val:.4f}", "step": global_step})
+
+            # Periodic cache clearing during training
+            if global_step % 100 == 0 and torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                gc.collect()
 
             if global_step % CHECKPOINT_EVERY == 0:
                 # Save BEFORE validation/sampling. epoch=epoch (not epoch+1):
@@ -689,7 +689,11 @@ def main():
     log("========== FINAL EVALUATION (all epochs complete) ==========", c_train["log_file"])
 
     try:
-        run_validation(vlm=vlm, val_loader=val_loader, device=device, log_file=c_train["log_file"])
+        run_validation(
+            vlm=vlm, val_loader=val_loader, device=device, log_file=c_train["log_file"],
+            intermediate_outputs=intermediate_outputs, cka_loss_fn=cka_loss_fn,
+            is_CKA=is_CKA, lambda_CKA=lambda_CKA,
+        )
     except Exception as e:
         log(f"FINAL VALIDATION FAILED: {type(e).__name__}: {e}", c_train["log_file"])
 
@@ -701,9 +705,16 @@ def main():
             device=device,
             num_samples=NUM_SAMPLES,
             log_file=c_train["log_file"],
+            ref_gsd_m=ref_gsd_m,
         )
     except Exception as e:
         log(f"FINAL SAMPLING FAILED: {type(e).__name__}: {e}", c_train["log_file"])
+
+    if is_CKA:
+        encoder_handle.remove()
+        penultimate_handle.remove()
+        final_handle.remove()
+        log("Removed CKA hooks", c_train["log_file"])
 
 
 if __name__ == "__main__":
