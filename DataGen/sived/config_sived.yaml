@@ -1,0 +1,72 @@
+# config_sived.yaml: SIVED VQA pipeline configuration
+
+data:
+  root:        /mnt/data/shruti/SAR_VQA_Data/SIVED
+  clean_jsonl: /mnt/data/shruti/SAR_VQA_Data/SIVED/sived_clean.jsonl
+
+output:
+  base_dir:    /home/saishruti/Research1/Shreyank_20_credit/DataGen/sived
+  facts_dir:   intermediate_facts
+  reports_dir: reports
+  data_dir:    data
+
+pipeline:
+  random_seed: 42
+  max_qa_per_image: 22
+  max_per_category: 3        # per image, before balancing and the 22 cap
+
+# Metres per pixel used for size conversion (decided: MSTAR taken as 0.3 m)
+gsd_m:
+  FARAD:   0.1
+  MiniSAR: 0.1
+  MSTAR:   0.3
+
+# Same 3x3 grid as the OEM pipeline, normalized [x1, y1, x2, y2]
+grid_regions:
+  top_left:      [0.0000, 0.0000, 0.3333, 0.3333]
+  top_center:    [0.3333, 0.0000, 0.6667, 0.3333]
+  top_right:     [0.6667, 0.0000, 1.0000, 0.3333]
+  middle_left:   [0.0000, 0.3333, 0.3333, 0.6667]
+  center:        [0.3333, 0.3333, 0.6667, 0.6667]
+  middle_right:  [0.6667, 0.3333, 1.0000, 0.6667]
+  bottom_left:   [0.0000, 0.6667, 0.3333, 1.0000]
+  bottom_center: [0.3333, 0.6667, 0.6667, 1.0000]
+  bottom_right:  [0.6667, 0.6667, 1.0000, 1.0000]
+
+# Which categories each sensor gets (final table)
+categories_per_source:
+  FARAD:   [global_quantitative, sar_comparative, comparative_spatial, region_grounding, regional_vqa,
+            object_relations, orientation, relative_size, arrangement, object_counting]
+  MiniSAR: [global_quantitative, sar_comparative, comparative_spatial, region_grounding, regional_vqa,
+            object_relations, orientation, relative_size, arrangement, object_counting]
+  MSTAR:   [sar_comparative, orientation, relative_size, region_grounding]   # grounding = presence only (fixed 4x4 lattice)
+
+# How vehicles are referred to in questions:
+#   box   -> normalized hbox [x1, y1, x2, y2] (grounding, counting, presence)
+#   point -> normalized centre [x, y]        (orientation, relative_size, sar_comparative, object_relations)
+reference:
+  point_min_sep_px: 20      # skip a vehicle as a point reference if another centre is closer than this
+
+# Random free-form boxes (same sizes as OEM); referring questions only where layouts are real
+grounding:
+  min_size: 0.08
+  max_size: 0.30
+  num_regions: 3
+  referring_sources: [FARAD, MiniSAR]
+
+# Set from the Phase 1 inspect review
+thresholds:
+  coverage_bins: [[0, 2, "less than 2%"], [2, 5, "about 2–5%"], [5, 10, "about 5–10%"], [10, 101, "more than 10%"]]
+  spatial_min_count_diff: 2
+  counting_max_zero_share: 0.2
+  orient_margin_deg: 5
+  orient_min_aspect: 1.3
+  orient_max_answer_share: 0.35
+  arrangement_min_vehicles: 4
+  arrangement_yes_min: 0.9
+  arrangement_no_max: 0.6
+  sar_min_intensity_diff: 15
+  size_min_length_ratio: 1.2
+  relation_min_nn2_ratio: 1.2
+  relation_dir_margin_deg: 7.5
+  referring_min_gap: 0.02    # normalized gap between 1st and 2nd candidate for closest / top-most
