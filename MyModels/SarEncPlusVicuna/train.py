@@ -341,13 +341,17 @@ def build_dataset(c_data, split: str, tokenizer, max_length):
     Build a SARVLMDataset for the given split ("train"/"val"). Supports any
     number of extra datasets via data.{split}_jsonl_2, _3, _4, ... (each with
     its own optional data_root_N, defaulting to data.data_root) -- stops at
-    the first missing N. Every extra source is subsampled down to the
-    primary dataset's record count before being concatenated in, so no
-    single extra source dominates by size.
+    the first missing N.
+
+    train: every extra source is subsampled down to the primary dataset's
+    *effective* record count -- i.e. after train_sample_size caps it (e.g.
+    50k/50k/50k...), or its full count if train_sample_size is null -- so no
+    single source dominates by size.
+    val: nothing is capped; every source contributes all of its records.
     """
     primary_path = c_data[f"{split}_jsonl"]
     primary_root = c_data["data_root"]
-    primary_sample_size = c_data.get(f"{split}_sample_size")  # None = use all records
+    primary_sample_size = c_data.get(f"{split}_sample_size") if split == "train" else None
 
     sources = [{"jsonl_path": primary_path, "data_root": primary_root, "sample_size": primary_sample_size}]
 
@@ -357,8 +361,10 @@ def build_dataset(c_data, split: str, tokenizer, max_length):
         secondary_path = c_data.get(f"{split}_jsonl_{n}")
         if not secondary_path:
             break
-        if base_count is None:
+        if split == "train" and base_count is None:
             base_count = count_jsonl_records(primary_path)
+            if primary_sample_size is not None:
+                base_count = min(base_count, primary_sample_size)
         sources.append({
             "jsonl_path": secondary_path,
             "data_root": c_data.get(f"data_root_{n}", primary_root),

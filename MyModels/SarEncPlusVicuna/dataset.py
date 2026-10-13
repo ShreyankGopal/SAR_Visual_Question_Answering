@@ -136,8 +136,21 @@ class SARVLMDataset(Dataset):
             recs = load_jsonl_records(src["jsonl_path"])
             sample_size = src.get("sample_size")
 
+            n_total = len(recs)
             if sample_size is not None and sample_size < len(recs):
                 recs = rng.sample(recs, sample_size)
+
+            # Same lookup as __getitem__, so this shows whether GeoRoPE's GCC
+            # will see a real GSD for this source or fall back to ratio 1.0.
+            n_gsd = sum(
+                r.get("ground_truth_facts", {}).get("gsd_m", r.get("gsd_m")) is not None
+                for r in recs
+            )
+            print(
+                f"[SARVLMDataset] source {i}: {src['jsonl_path']} -> "
+                f"using {len(recs)}/{n_total} records (cap={sample_size}), "
+                f"gsd_m present in {n_gsd}/{len(recs)}"
+            )
 
             self.records.extend((r, src["data_root"], i) for r in recs)
 

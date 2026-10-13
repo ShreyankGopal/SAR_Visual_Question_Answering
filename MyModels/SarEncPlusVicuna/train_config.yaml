@@ -51,8 +51,8 @@ data:
   train_jsonl_5: "/home/saishruti/Research1/Shreyank_20_credit/DataGen/sar_vqa/output/sived/data/train.jsonl"
   val_jsonl_5: "/home/saishruti/Research1/Shreyank_20_credit/DataGen/sar_vqa/output/sived/data/val.jsonl"   
   data_root_5: "/mnt/data/shruti/SAR_VQA_Data/SIVED/"   
-  train_sample_size: 50000   # cap on primary train dataset; null/omitted = use all records
-  val_sample_size: null     # same, for the primary val dataset
+  train_sample_size: 50000   # cap on primary train dataset; every extra train dataset is capped to the same count. null = primary uses all records, extras capped at its full count
+  val_sample_size: null     # ignored -- val is never capped (all records from every val source)
   sample_seed: 42   # controls which records get sampled from the second dataset
  
 model:
