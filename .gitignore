@@ -126,3 +126,7 @@ trials/
 # config.yaml
 # secrets.yaml
 # .env
+DataGen/sar_vqa.zip
+DataGen/files.zip
+DataGen/sived/reports/
+DataGen/sived/sived_vqa_v1.tgz

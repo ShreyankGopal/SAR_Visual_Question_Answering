@@ -257,6 +257,7 @@ class SARVLM(nn.Module):
         n_visual: int = 256,
         projector_hidden_dim: Optional[int] = None,
         torch_dtype=torch.float16,
+        load_cpu: bool = False,
         **kwargs,
     ) -> "SARVLM":
         """
@@ -272,6 +273,8 @@ class SARVLM(nn.Module):
             n_visual: Number of visual tokens (256 for 512px/f3).
             projector_hidden_dim: Inner MLP dim for SARProjector.
             torch_dtype: dtype for Vicuna weights.
+            load_cpu: If True, load Vicuna on CPU first then move to GPU
+                (slower but uses less peak memory). If False, load directly to GPU.
             **kwargs: Extra arguments passed to SARVLM.__init__.
         """
         from transformers import AutoModelForCausalLM, AutoConfig
@@ -281,15 +284,27 @@ class SARVLM(nn.Module):
         config._attn_implementation = "eager"
 
         print(f"[SARVLM] Loading Vicuna weights from {vicuna_path} ...")
-        
-        # Load weights on CPU first to avoid GPU OOM during loading
+
+        # Load weights based on load_cpu flag
         from transformers import AutoModelForCausalLM
-        vicuna_base = AutoModelForCausalLM.from_pretrained(
-            vicuna_path,
-            torch_dtype=torch_dtype,
-            attn_implementation="eager",
-            low_cpu_mem_usage=True,
-        )
+
+        if load_cpu:
+            print("[SARVLM] Loading Vicuna on CPU first (load_cpu=True)")
+            vicuna_base = AutoModelForCausalLM.from_pretrained(
+                vicuna_path,
+                torch_dtype=torch_dtype,
+                attn_implementation="eager",
+                low_cpu_mem_usage=True,
+                device_map="cpu",  # Force CPU loading
+            )
+        else:
+            print("[SARVLM] Loading Vicuna directly to GPU (load_cpu=False)")
+            vicuna_base = AutoModelForCausalLM.from_pretrained(
+                vicuna_path,
+                torch_dtype=torch_dtype,
+                attn_implementation="eager",
+                low_cpu_mem_usage=True,
+            )
         
         # Build HybridLlamaForCausalLM
         hybrid_vicuna = HybridLlamaForCausalLM(config)

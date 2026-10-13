@@ -189,10 +189,19 @@ def load_model(config_path: str, checkpoint_path: str = None):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     log(f"Running on device: {device}")
 
+    # Clear CUDA cache at start
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+        log("Initial CUDA cache cleared")
+
     # Tokenizer
     tokenizer = AutoTokenizer.from_pretrained(c_model["vicuna_path"], use_fast=False)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.unk_token
+
+    # Clear cache after tokenizer
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
 
     # Find latest checkpoint if not specified
     if checkpoint_path is None:
@@ -209,6 +218,17 @@ def load_model(config_path: str, checkpoint_path: str = None):
         freeze=True,
         d_sar=c_model["d_sar"]
     )
+    log("SAR encoder loaded")
+
+    # Clear cache after encoder
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+
+    # Get load_cpu flag from config (default to False for direct GPU loading)
+    # If False: loads Vicuna directly to GPU (faster, more memory)
+    # If True: loads Vicuna on CPU first then moves to GPU (slower, less memory)
+    load_cpu = c_model.get("load_cpu", False)
+    log(f"Vicuna loading mode: {'CPU-first' if load_cpu else 'Direct to GPU'}")
 
     # Load model
     log("Loading SAR-VLM model...")
@@ -222,18 +242,46 @@ def load_model(config_path: str, checkpoint_path: str = None):
         lora_dropout=c_lora["dropout"],
         lora_target_modules=c_lora["target_modules"],
         apply_lora=True,
-        torch_dtype=torch.float16
+        torch_dtype=torch.float32,  # Use FP32 for consistency with training
+        load_cpu=load_cpu  # CPU-first or direct GPU loading
     )
+    log("Vicuna model loaded")
 
+    # Clear cache after model loading
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+
+    # Move to device
+    log("Moving model to device...")
     vlm = vlm.to(device)
-    vlm.hybrid_vicuna.gradient_checkpointing_enable()
+    log("Model moved to device")
+
+    # Clear cache after moving to device
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+
+    # No gradient checkpointing for inference (training only)
+    # vlm.hybrid_vicuna.gradient_checkpointing_enable()  # Removed for inference
+
+    # Log memory usage
+    if torch.cuda.is_available():
+        memory_allocated = torch.cuda.memory_allocated(device) / 1024**3
+        memory_reserved = torch.cuda.memory_reserved(device) / 1024**3
+        memory_free = (torch.cuda.get_device_properties(device).total_memory -
+                      torch.cuda.memory_allocated(device)) / 1024**3
+        log(f"GPU Memory - Allocated: {memory_allocated:.2f} GB, "
+            f"Reserved: {memory_reserved:.2f} GB, Free: {memory_free:.2f} GB")
 
     # Load checkpoint weights
     log(f"Loading checkpoint weights from {checkpoint_path}...")
     vlm.hybrid_vicuna.load_adapter(checkpoint_path, adapter_name="default")
-    
+
     projector_path = os.path.join(checkpoint_path, "projector.pth")
     vlm.projector.load_state_dict(torch.load(projector_path, map_location=device))
+
+    # Clear cache after checkpoint loading
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
 
     log("Model loaded successfully")
     return vlm, tokenizer, device, global_step
@@ -293,20 +341,30 @@ def run_benchmark(dataset, vlm, tokenizer, device, split_name: str) -> list:
         batch_size=1,
         shuffle=False,
         collate_fn=lambda b: collate_fn(b, tokenizer),
-        num_workers=1,
-        pin_memory=False
+        num_workers=4,  # Increased from 1 to 4 for better performance
+        pin_memory=True  # Enable pin_memory for faster data transfer
     )
     
     n = len(dataset)
-    
+
     for idx, batch in enumerate(val_loader):
+        # Periodic CUDA cache cleanup during benchmarking
+        if idx % 50 == 0 and torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
         # Get ground truth from labels (convert -100 to actual token IDs)
         labels = batch["labels"].clone()
         labels[labels == -100] = tokenizer.pad_token_id
         gt_text = tokenizer.decode(labels[0], skip_special_tokens=True)
         
         # Get question from the dataset record
-        record = dataset.records[idx]
+        # Handle tuple structure from multi-source dataset: (record, data_root, source_idx)
+        record_tuple = dataset.records[idx]
+        if isinstance(record_tuple, tuple):
+            record = record_tuple[0]  # Extract the actual record dict
+        else:
+            record = record_tuple  # Single source case
+
         category = record.get("category", "unknown")
         question, _ = extract_question_and_gt(record)
         rec_id = record.get("id", f"idx_{idx}")
@@ -326,6 +384,10 @@ def run_benchmark(dataset, vlm, tokenizer, device, split_name: str) -> list:
                        "rouge1": 0.0, "rouge2": 0.0, "rougeL": 0.0}
             error   = str(e)
             log(f"  ERROR on {rec_id}: {e}")
+
+            # Clear cache after error
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
 
         row = {
             "id":         rec_id,
@@ -422,7 +484,7 @@ def save_results(results: list, split_name: str) -> None:
 
     summary_lines += [
         "=" * W,
-        f"  SAR-VLM Benchmark  --  {split_name.upper()} split",
+        f"  SAR-VLM Benchmark  --  test split -- On Sardet100k+OpenEarthSAR. Model-- SarencPlusVicuna with CKA regularised loss fn",
         f"  Timestamp : {ts}",
         f"  Total samples : {len(results)}   Errors: {sum(1 for r in results if r['error'])}",
         "=" * W,
@@ -508,18 +570,52 @@ def main():
     log(f"GPU: {gpu_alloc:.2f} GB allocated / {gpu_res:.2f} GB reserved")
 
     # Load validation dataset using SARVLMDataset (same as val.py)
-    log(f"\nLoading validation dataset from {c_data['val_jsonl']} ...")
+    # Support both val_jsonl and val_jsonl2 like training script
+    log(f"\nLoading validation dataset...")
+
+    # Build dataset with multiple sources support
+    primary_path = c_data["val_jsonl"]
+    primary_root = c_data["data_root"]
+
+    sources = [
+        {"jsonl_path": primary_path, "data_root": primary_root, "sample_size": None}
+    ]
+
+    # Add secondary validation dataset if configured
+    secondary_path = c_data.get("val_jsonl_2")
+    if secondary_path:
+        from dataset import count_jsonl_records
+        base_count = count_jsonl_records(primary_path)
+        secondary_root = c_data.get("data_root_2", primary_root)
+
+        sources.append(
+            {
+                "jsonl_path": secondary_path,
+                "data_root": secondary_root,
+                "sample_size": base_count,
+            }
+        )
+        log(f"  Secondary validation dataset: {secondary_path}")
+
     dataset = SARVLMDataset(
-        c_data["val_jsonl"],
-        c_data["data_root"],
-        tokenizer,
-        max_length=c_train["max_length"]
+        sources=sources,
+        tokenizer=tokenizer,
+        max_length=c_train["max_length"],
+        seed=c_data.get("sample_seed", 42),
     )
     log(f"  Total samples: {len(dataset)}")
 
     if args.category:
         # Filter dataset by category
-        filtered_records = [r for r in dataset.records if r.get("category") == args.category]
+        # Handle tuple structure from multi-source dataset
+        filtered_records = []
+        for r in dataset.records:
+            if isinstance(r, tuple):
+                record = r[0]  # Extract actual record from tuple
+            else:
+                record = r
+            if record.get("category") == args.category:
+                filtered_records.append(r)
         dataset.records = filtered_records
         log(f"  After category filter '{args.category}': {len(dataset.records)}")
 

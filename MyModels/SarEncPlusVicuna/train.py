@@ -755,13 +755,13 @@ def main():
 
     def encoder_hook(module, input, output):
         """Capture SAR encoder output"""
-        intermediate_outputs['encoder_output'] = output.detach()
+        intermediate_outputs['encoder_output'] = output
 
     def penultimate_hook(module, input, output):
         """Capture penultimate layer hidden states"""
         # The output is directly the hidden states tensor, not a tuple
         # It has shape [batch_size, seq_len, hidden_size]
-        hidden_states = output.detach()
+        hidden_states = output
         intermediate_outputs['penultimate_hidden'] = hidden_states
 
         # Debug: log shape periodically
@@ -773,7 +773,7 @@ def main():
         """Capture final layer hidden states"""
         # The output is directly the hidden states tensor, not a tuple
         # It has shape [batch_size, seq_len, hidden_size]
-        hidden_states = output.detach()
+        hidden_states = output
         intermediate_outputs['final_hidden'] = hidden_states
 
         # Debug: log shape periodically
@@ -919,6 +919,10 @@ def main():
 
                 # Compute CKA loss between encoder and penultimate LLM layer
                 cka_loss, cka_value = cka_loss_fn(encoder_pooled, llm_penultimate_pooled)
+
+                # Debug: Check if CKA loss has gradients
+                if global_step % 10 == 0 and global_step<=20:
+                    print("CKA:", cka_loss.requires_grad, cka_loss.grad_fn, "| main loss:", loss.requires_grad)
 
                 # Optional: Also compute CKA between encoder and final LLM layer
                 # You can uncomment if you want to use final layer as well
