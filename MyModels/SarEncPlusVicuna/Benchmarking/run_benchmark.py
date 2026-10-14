@@ -72,6 +72,7 @@ REPO_DIR = SCRIPT_DIR.parent
 sys.path.insert(0, str(REPO_DIR))
 
 from model.sar_vlm import SARVLM, build_sar_encoder
+from model.mars_adapters import install_mars_adapters, load_mars_adapters
 from dataset import SARVLMDataset, collate_fn
 
 
@@ -190,6 +191,9 @@ def load_checkpoint_weights(vlm, checkpoint_path: str, device) -> None:
                 f"GeoRoPE, set georope.enable: false in the config."
             )
         vlm.georope_adapter.load_state_dict(torch.load(georope_path, map_location=device))
+    # In-MaRS adapters: no-op if none are configured and none were saved;
+    # raises if the checkpoint and the `mars:` config disagree.
+    load_mars_adapters(vlm.sar_encoder, os.path.join(checkpoint_path, "mars_adapters.pth"), device)
 
 
 def checkpoint_is_healthy(vlm, checkpoint_path: str, health_batch: dict, device) -> bool:
@@ -347,6 +351,8 @@ def load_model(config: dict, checkpoint_path: str = None):
         freeze=True,
         d_sar=c_model["d_sar"],
     )
+    # Same in-MaRS LoRA / GeoRoPE branches the run was trained with (`mars:` config).
+    install_mars_adapters(sar_encoder, **(config.get("mars") or {}))
 
     # Clear cache after SAR encoder
     if torch.cuda.is_available():

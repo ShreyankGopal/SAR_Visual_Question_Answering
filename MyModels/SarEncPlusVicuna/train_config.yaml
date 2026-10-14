@@ -80,6 +80,22 @@ georope:
   # SIVED/FARAD records seen so far) -- adjust if a finer source is added.
   ref_gsd_m: 0.1
 
+# Trainable modules INSIDE the MaRS encoder (model/mars_adapters.py).
+# Both off = MaRS stays fully frozen, exactly as before.
+#   lora: true,  georope: false  -> "MaRS LoRA only" control row
+#   lora: true,  georope: true   -> "GeoRoPE in MaRS" row
+# The in-MaRS GeoRoPE branches use the same gsd_ratio as the adapter above,
+# so they need georope.ref_gsd_m set (it is read even when georope.enable is false).
+# The benchmark must be run with the same `mars:` settings the run was trained with.
+mars:
+  lora: false
+  georope: false
+  stages: [0, 1, 2, 3]       # which MaRS stages get the modules; drop 0 (then 1) if memory is short
+  lora_r: 16
+  lora_alpha: 32
+  # Other settings (heads, frequency base, gcc_alpha, ...) use the defaults of
+  # install_mars_adapters() in model/mars_adapters.py; add a key here to override one.
+
 training:
   epochs: 3
   # Effective batch size = micro_batch_size * gradient_accumulation_steps
