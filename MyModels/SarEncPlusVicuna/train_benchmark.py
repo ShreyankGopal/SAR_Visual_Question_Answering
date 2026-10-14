@@ -755,13 +755,13 @@ def main():
 
     def encoder_hook(module, input, output):
         """Capture SAR encoder output"""
-        intermediate_outputs['encoder_output'] = output.detach()
+        intermediate_outputs['encoder_output'] = output
 
     def penultimate_hook(module, input, output):
         """Capture penultimate layer hidden states"""
         # The output is directly the hidden states tensor, not a tuple
         # It has shape [batch_size, seq_len, hidden_size]
-        hidden_states = output.detach()
+        hidden_states = output
         intermediate_outputs['penultimate_hidden'] = hidden_states
 
         # Debug: log shape periodically
@@ -773,7 +773,7 @@ def main():
         """Capture final layer hidden states"""
         # The output is directly the hidden states tensor, not a tuple
         # It has shape [batch_size, seq_len, hidden_size]
-        hidden_states = output.detach()
+        hidden_states = output
         intermediate_outputs['final_hidden'] = hidden_states
 
         # Debug: log shape periodically

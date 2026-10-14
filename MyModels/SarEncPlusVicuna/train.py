@@ -606,13 +606,13 @@ def main():
 
     if is_CKA:
         def encoder_hook(module, input, output):
-            intermediate_outputs['encoder_output'] = output.detach()
+            intermediate_outputs['encoder_output'] = output
 
         def penultimate_hook(module, input, output):
-            intermediate_outputs['penultimate_hidden'] = output.detach()
+            intermediate_outputs['penultimate_hidden'] = output
 
         def final_hook(module, input, output):
-            intermediate_outputs['final_hidden'] = output.detach()
+            intermediate_outputs['final_hidden'] = output
 
         encoder_handle = vlm.sar_encoder.register_forward_hook(encoder_hook)
         num_layers = vlm._llama_model_ref.config.num_hidden_layers
