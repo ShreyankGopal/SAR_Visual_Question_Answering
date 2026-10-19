@@ -675,6 +675,8 @@ def parse_args():
     p.add_argument("--batch_size", type=int, default=8,
                    help="Samples generated together per batch")
     p.add_argument("--max_new_tokens", type=int, default=64)
+    p.add_argument("--split", choices=["val", "test", "both"], default="both",
+                   help="Which split(s) of each dataset to evaluate (default: both, combined)")
     return p.parse_args()
 
 
@@ -689,7 +691,8 @@ def main():
             nltk.download(res.split("/")[-1], quiet=True)
 
     log("=" * 60)
-    log("SAR-VLM Benchmark Runner (val + test)")
+    split_desc = "val + test" if args.split == "both" else args.split
+    log(f"SAR-VLM Benchmark Runner ({split_desc})")
     log("=" * 60)
 
     os.chdir(REPO_DIR)
@@ -713,12 +716,18 @@ def main():
     eval_datasets = discover_eval_datasets(c_data)
     if not eval_datasets:
         raise ValueError("No val_jsonl / test_jsonl found in config['data']")
+    if args.split != "both":
+        for ds in eval_datasets:
+            ds["files"] = [(p, s) for p, s in ds["files"] if s == args.split]
+            if not ds["files"]:
+                log(f"WARNING: no {args.split} file found for '{ds['name']}' -- skipping it")
+        eval_datasets = [ds for ds in eval_datasets if ds["files"]]
     log(f"\nFound {len(eval_datasets)} dataset(s):")
     for ds in eval_datasets:
         log(f"  {ds['name']}:")
         for path, split in ds["files"]:
             log(f"    [{split}] {path}")
-        if len(ds["files"]) < 2:
+        if args.split == "both" and len(ds["files"]) < 2:
             log(f"    WARNING: only one split found for '{ds['name']}'")
 
     all_results = []
@@ -730,7 +739,7 @@ def main():
             tokenizer=tokenizer,
             max_length=c_train["max_length"],
         )
-        log(f"\n'{ds['name']}': {len(dataset)} samples (val + test)")
+        log(f"\n'{ds['name']}': {len(dataset)} samples ({split_desc})")
 
         if args.category:
             dataset.records = [r for r in dataset.records if r[0].get("category") == args.category]
@@ -778,7 +787,7 @@ def main():
     if not all_results:
         log("No samples evaluated.")
         return
-    save_results(all_results, out_dir, tag, f"VAL + TEST, checkpoint step {global_step}")
+    save_results(all_results, out_dir, tag, f"{split_desc.upper()}, checkpoint step {global_step}")
     log("\nAll done!")
 
 
