@@ -37,12 +37,15 @@ import torch
 import torch.nn.functional as F
 import yaml
 from torch import nn
+from tqdm import tqdm
 
 # Reuse MaRS loading and the in-MaRS LoRA from SarEncPlusVicuna, so stages B/C
 # install exactly the same LoRA when they load this stage's weights.
 SAR_VLM_DIR = Path(__file__).resolve().parent.parent / "SarEncPlusVicuna"
 sys.path.insert(0, str(SAR_VLM_DIR))
-from model.mars_adapters import install_mars_adapters, mars_adapter_params, save_mars_adapters  # noqa: E402
+from model.mars_adapters import (  # noqa: E402
+    install_mars_adapters, load_mars_adapters, mars_adapter_params, save_mars_adapters,
+)
 
 IMG_SIZE = 512
 
@@ -228,7 +231,7 @@ def evaluate(encoder, frozen, head, predictor, val_sets, factors_all, tau, devic
             ps.append(head(z.float()))
             cos.append(F.cosine_similarity(z[0].float(), z0.float(), dim=-1))
         m = scale_losses(torch.cat(ps, dim=1), predictor, factors_all, tau)
-        out[name] = {"acc_a": float(m["acc_a"]), "acc_b": float(m["acc_b"]), "cos_frozen": float(torch.cat(cos).mean())}
+        out[name] = {"acc_a": m["acc_a"].item(), "acc_b": m["acc_b"].item(), "cos_frozen": float(torch.cat(cos).mean())}
     train_mode(encoder)
     return out
 
@@ -237,6 +240,7 @@ def main():
     ap = argparse.ArgumentParser(description="Stage A: scale-equivariant MaRS LoRA fine-tuning")
     ap.add_argument("--config", "-c", default="stage_a_config.yaml")
     ap.add_argument("--dry-run", action="store_true", help="5 steps, print peak GPU memory, save nothing")
+    ap.add_argument("--no-resume", action="store_true", help="start from scratch even if out_dir has completed epochs")
     args = ap.parse_args()
     cfg = yaml.safe_load(open(args.config))
     c_tr, c_loss = cfg["training"], cfg["loss"]
@@ -287,13 +291,29 @@ def main():
     log(f"{len(train_items)} train images, {steps_per_epoch} steps/epoch, up to {c_tr['max_epochs']} epochs", log_file)
 
     csv_path = out_dir / "stage_a_losses.csv"
-    best_b, bad_epochs, step = -1.0, 0, 0
-    for epoch in range(1, c_tr["max_epochs"] + 1):
+    # Resume from the last completed epoch in out_dir (one with a state.pth).
+    start_epoch, best_b, bad_epochs, step = 1, -1.0, 0, 0
+    done = sorted(int(d.name.split("_")[1]) for d in out_dir.glob("epoch_*") if (d / "state.pth").exists())
+    if done and not (args.no_resume or args.dry_run):
+        last = out_dir / f"epoch_{done[-1]}"
+        load_mars_adapters(encoder, str(last / "mars_lora.pth"), device)
+        hp = torch.load(last / "head_predictor.pth", map_location=device)
+        head.load_state_dict(hp["head"])
+        predictor.load_state_dict(hp["predictor"])
+        st = torch.load(last / "state.pth", map_location=device, weights_only=False)
+        opt.load_state_dict(st["optimizer"])
+        sched.load_state_dict(st["scheduler"])
+        scaler.load_state_dict(st["scaler"])
+        rng.setstate(st["rng"])
+        start_epoch, best_b, bad_epochs, step = st["epoch"] + 1, st["best_b"], st["bad_epochs"], st["step"]
+        log(f"Resumed from {last} (epoch {st['epoch']}, step {step}, best TermB val acc {best_b:.3f})", log_file)
+
+    for epoch in range(start_epoch, c_tr["max_epochs"] + 1):
         batches = single_dataset_batches(train_items, c_tr["batch_size"], rng)
         loader = torch.utils.data.DataLoader(train_ds, batch_sampler=batches,
                                              num_workers=c_tr.get("num_workers", 4),
                                              collate_fn=partial(torch.stack, dim=1))   # -> [V, B, 1, H, W]
-        for views in loader:                                       # [V, B, 1, H, W]
+        for views in tqdm(loader, desc=f"Stage A epoch {epoch}"):   # [V, B, 1, H, W]
             views = views.to(device, non_blocking=True)
             with torch.autocast(device.type, enabled=device.type == "cuda"):
                 z = pooled(encoder, views)
@@ -319,8 +339,8 @@ def main():
                 return
             if not args.dry_run:
                 row = {"epoch": epoch, "step": step, "split": "train", "loss": loss.item(),
-                       "loss_a": float(m["loss_a"]), "loss_b": float(m["loss_b"]), "preserve": pres.item(),
-                       "acc_a": float(m["acc_a"]), "acc_b": float(m["acc_b"]), "lr": sched.get_last_lr()[0]}
+                       "loss_a": m["loss_a"].item(), "loss_b": m["loss_b"].item(), "preserve": pres.item(),
+                       "acc_a": m["acc_a"].item(), "acc_b": m["acc_b"].item(), "lr": sched.get_last_lr()[0]}
                 new = not csv_path.exists()
                 with open(csv_path, "a", newline="") as f:
                     w = csv.DictWriter(f, fieldnames=list(row))
@@ -328,8 +348,8 @@ def main():
                         w.writeheader()
                     w.writerow(row)
             if step % 50 == 0:
-                log(f"epoch {epoch} step {step}: loss {loss.item():.4f} A {float(m['loss_a']):.3f} "
-                    f"B {float(m['loss_b']):.3f} pres {pres.item():.3f} accB {float(m['acc_b']):.3f}", log_file)
+                log(f"epoch {epoch} step {step}: loss {loss.item():.4f} A {m['loss_a'].item():.3f} "
+                    f"B {m['loss_b'].item():.3f} pres {pres.item():.3f} accB {m['acc_b'].item():.3f}", log_file)
 
         # --- validation, checkpoint, stopping rule ---
         val = evaluate(encoder, frozen, head, predictor, val_sets, factors_all,
@@ -354,9 +374,12 @@ def main():
             log(f"new best TermB val acc {acc_b:.3f} -> {out_dir / 'best_mars_lora.pth'}", log_file)
         else:
             bad_epochs += 1
-            if bad_epochs >= c_tr["patience"]:
-                log(f"TermB val acc has not improved for {bad_epochs} epochs; stopping.", log_file)
-                break
+        torch.save({"epoch": epoch, "step": step, "best_b": best_b, "bad_epochs": bad_epochs,
+                    "optimizer": opt.state_dict(), "scheduler": sched.state_dict(),
+                    "scaler": scaler.state_dict(), "rng": rng.getstate()}, ep_dir / "state.pth")
+        if bad_epochs >= c_tr["patience"]:
+            log(f"TermB val acc has not improved for {bad_epochs} epochs; stopping.", log_file)
+            break
 
     verdict = "PROCEED to stage B/C" if best_b >= 0.9 else ("RETHINK" if best_b < 0.7 else "BORDERLINE")
     log(f"Done. Best TermB val acc {best_b:.3f} (target >= 0.90, cos(frozen) >= 0.80): {verdict}", log_file)
