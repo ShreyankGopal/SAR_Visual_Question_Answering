@@ -239,6 +239,7 @@ def install_mars_adapters(
     gcc_alpha: float = 0.5,
     gfc_hidden_dim: int = 64,
     grad_checkpointing: bool = True,
+    stage_a_checkpoint: Optional[str] = None,
 ) -> nn.Module:
     """
     Install LoRA and/or GeoRoPE branches on the SwinV2 blocks of `encoder`
@@ -247,7 +248,14 @@ def install_mars_adapters(
 
     lora=True, georope=False is the "MaRS LoRA only" control.
     Both False: no-op, the encoder is returned untouched.
+
+    stage_a_checkpoint: path to a stage-A LoRA file (StageA_ScaleAware's
+    mars_lora.pth). The LoRA is loaded from it and kept FROZEN: SARVLM then
+    runs MaRS without gradients, exactly as with no adapters. Requires
+    lora=True, georope=False, and the same stages / lora_r / lora_alpha as stage A.
     """
+    if stage_a_checkpoint and (georope or not lora):
+        raise ValueError("mars.stage_a_checkpoint needs mars.lora: true and mars.georope: false")
     if not (lora or georope):
         return encoder
 
@@ -286,6 +294,11 @@ def install_mars_adapters(
             blk, branch, ctx, grad_checkpointing
         )
         installed += 1
+
+    if stage_a_checkpoint:
+        load_mars_adapters(encoder, stage_a_checkpoint)
+        encoder.mars_frozen = True   # SARVLM keeps these params frozen
+        print(f"[install_mars_adapters] loaded frozen stage-A LoRA from {stage_a_checkpoint}")
 
     n_new = sum(p.numel() for p in mars_adapter_params(encoder).values())
     print(

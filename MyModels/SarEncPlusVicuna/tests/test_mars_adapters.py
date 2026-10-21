@@ -267,3 +267,59 @@ class TestSARVLMIntegration:
         adapted.train()
         adapted(x, ids, labels=ids, gsd_ratio=gsd).loss.backward()
         assert any(p.grad is not None and p.grad.abs().sum() > 0 for p in new.values())
+
+
+class TestStageACheckpoint:
+    """mars.stage_a_checkpoint: load a stage-A LoRA file and keep it frozen."""
+
+    def _saved_stage_a(self, tmp_path):
+        path = str(tmp_path / "mars_lora.pth")
+        src = install_mars_adapters(_make_encoder(), lora=True, georope=False).eval()
+        _randomise(src, ("lora_",))
+        save_mars_adapters(src, path)
+        return src, path
+
+    def test_loads_weights_and_marks_frozen(self, x, tmp_path):
+        src, path = self._saved_stage_a(tmp_path)
+        dst = install_mars_adapters(_make_encoder(), lora=True, georope=False, stage_a_checkpoint=path).eval()
+        assert getattr(dst, "mars_frozen", False)
+        with torch.no_grad():
+            assert torch.allclose(src(x), dst(x), atol=1e-6)
+
+    def test_requires_lora_only(self, tmp_path):
+        _, path = self._saved_stage_a(tmp_path)
+        with pytest.raises(ValueError, match="stage_a_checkpoint"):
+            install_mars_adapters(_make_encoder(), lora=True, georope=True, stage_a_checkpoint=path)
+
+    def test_without_option_nothing_changes(self):
+        enc = install_mars_adapters(_make_encoder(), lora=True, georope=False)
+        assert not getattr(enc, "mars_frozen", False)
+
+    def test_sarvlm_keeps_stage_a_lora_frozen(self, x, gsd, tmp_path):
+        """Needs transformers + peft (training server)."""
+        pytest.importorskip("peft")
+        transformers = pytest.importorskip("transformers")
+        from model.hybrid_llama import HybridLlamaForCausalLM
+        from model.sar_projector import SARProjector
+        from model.sar_vlm import SARVLM, _SAREncoderWrapper
+
+        _, path = self._saved_stage_a(tmp_path)
+        cfg = transformers.LlamaConfig(
+            hidden_size=64, intermediate_size=128, num_hidden_layers=2,
+            num_attention_heads=2, num_key_value_heads=2, vocab_size=200,
+        )
+        cfg._attn_implementation = "eager"
+        backbone = _make_encoder().backbone
+        enc = install_mars_adapters(_SAREncoderWrapper(backbone), lora=True, georope=False, stage_a_checkpoint=path)
+        vlm = SARVLM(
+            sar_encoder=enc, projector=SARProjector(d_sar=backbone.feature_info.channels()[-1], llm_hidden_size=64),
+            hybrid_vicuna=HybridLlamaForCausalLM(cfg), lora_r=4, lora_alpha=8, lora_dropout=0.0,
+        )
+        assert vlm._mars_trainable is False
+        assert not any(p.requires_grad for p in vlm.sar_encoder.parameters())
+
+        ids = torch.randint(0, 200, (B, 8))
+        vlm.train()
+        vlm(x, ids, labels=ids, gsd_ratio=gsd).loss.backward()
+        assert all(p.grad is None for p in mars_adapter_params(vlm.sar_encoder).values())
+        assert vlm.projector.proj[0].weight.grad is not None

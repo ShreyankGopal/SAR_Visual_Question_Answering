@@ -693,10 +693,14 @@ class SARVLM(nn.Module):
         """
         Freeze all original SAR encoder parameters. In-MaRS adapter parameters
         (LoRA / GeoRoPE branches from model/mars_adapters.py), if installed,
-        stay trainable.
+        stay trainable -- unless they were loaded frozen from stage A
+        (mars.stage_a_checkpoint), in which case MaRS stays fully frozen.
         """
         for param in self.sar_encoder.parameters():
             param.requires_grad_(False)
+        if getattr(self.sar_encoder, "mars_frozen", False):
+            self._mars_trainable = False
+            return
         mars_params = mars_adapter_params(self.sar_encoder)
         for param in mars_params.values():
             param.requires_grad_(True)
