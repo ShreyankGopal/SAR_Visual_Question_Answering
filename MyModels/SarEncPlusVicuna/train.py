@@ -43,7 +43,7 @@ from transformers import AutoTokenizer
 from tqdm import tqdm
 
 from model.sar_vlm import SARVLM, build_sar_encoder
-from dataset import SARVLMDataset, collate_fn, count_jsonl_records
+from dataset import SARVLMDataset, SARCaptioningDs, collate_fn, count_jsonl_records
 from Loss_functions.Centered_Kernel_Allign import RBFCKALoss
 
 
@@ -74,7 +74,7 @@ def find_latest_checkpoint(save_dir):
     return os.path.join(save_dir, max(steps)[1]) if steps else None
 
 
-def save_checkpoint(vlm, optimizer, scaler, save_dir, global_step, epoch, log_file=None, keep_last=2):
+def save_checkpoint(vlm, optimizer, scaler, save_dir, global_step, epoch, log_file=None, keep_last=2, only_mlp=False):
     """
     Save LoRA adapters, the projector, optimizer/scaler state, and the
     global_step/epoch counters, so training can resume exactly. Kept
@@ -84,13 +84,21 @@ def save_checkpoint(vlm, optimizer, scaler, save_dir, global_step, epoch, log_fi
     keep_last: after saving, deletes all but the most recent `keep_last`
     step_N checkpoint dirs under save_dir, so disk usage doesn't grow
     unbounded over a long run.
+
+    only_mlp: if True, only save the projector weights (no LoRA adapters).
+    This is used when training only the MLP projector with frozen encoder
+    and no LoRA on Vicuna.
     """
     checkpoint_dir = os.path.join(save_dir, f"step_{global_step}")
     os.makedirs(checkpoint_dir, exist_ok=True)
 
     log(f"Saving checkpoint at global step {global_step} -> {checkpoint_dir}", log_file)
 
-    vlm.hybrid_vicuna.save_pretrained(checkpoint_dir)
+    if only_mlp:
+        log("only_mlp=True: saving only projector weights", log_file)
+    else:
+        vlm.hybrid_vicuna.save_pretrained(checkpoint_dir)
+
     torch.save(vlm.projector.state_dict(), os.path.join(checkpoint_dir, "projector.pth"))
     if vlm.georope_adapter is not None:
         torch.save(
@@ -123,7 +131,7 @@ def save_checkpoint(vlm, optimizer, scaler, save_dir, global_step, epoch, log_fi
     return checkpoint_dir
 
 
-def load_model_weights(vlm, checkpoint_path, device, log_file=None):
+def load_model_weights(vlm, checkpoint_path, device, log_file=None, only_mlp=False):
     """Load LoRA adapter weights and the SAR -> Vicuna projector from checkpoint_path."""
     log(f"Loading model weights from: {checkpoint_path}", log_file)
 
@@ -132,14 +140,25 @@ def load_model_weights(vlm, checkpoint_path, device, log_file=None):
             f"checkpoint_path does not exist or is not a directory: {checkpoint_path}"
         )
 
-    # "default" is PEFT's default adapter name -- matches what
-    # save_checkpoint()'s save_pretrained() saves under.
-    vlm.hybrid_vicuna.load_adapter(checkpoint_path, adapter_name="default", is_trainable=True)
-    vlm.hybrid_vicuna.set_adapter("default")
+    # Only load LoRA adapter if only_mlp is False (i.e., LoRA was saved)
+    if not only_mlp:
+        # "default" is PEFT's default adapter name -- matches what
+        # save_checkpoint()'s save_pretrained() saves under.
+        # Check if adapter_config.json exists (indicates LoRA was saved)
+        adapter_config_path = os.path.join(checkpoint_path, "adapter_config.json")
+        if os.path.exists(adapter_config_path):
+            vlm.hybrid_vicuna.load_adapter(checkpoint_path, adapter_name="default", is_trainable=True)
+            vlm.hybrid_vicuna.set_adapter("default")
+            log("LoRA adapter loaded", log_file)
+        else:
+            log("No LoRA adapter found in checkpoint (only_mlp mode or no LoRA saved)", log_file)
+    else:
+        log("only_mlp=True: skipping LoRA adapter loading", log_file)
 
     projector_path = os.path.join(checkpoint_path, "projector.pth")
     if os.path.exists(projector_path):
         vlm.projector.load_state_dict(torch.load(projector_path, map_location=device))
+        log("Projector weights loaded", log_file)
     else:
         log(
             f"WARNING: no projector.pth found at {projector_path} -- "
@@ -212,6 +231,19 @@ def parse_args():
             "Start from scratch even if a checkpoint is found. By default, "
             "training auto-resumes from training.checkpoint_path in the config "
             "(if set) or otherwise the latest checkpoint under training.save_dir."
+        ),
+    )
+    parser.add_argument(
+        "--mlp-checkpoint", "--mlp_checkpoint", type=str, default=None,
+        help=(
+            "Path to pre-trained MLP projector checkpoint (.pth file or directory "
+            "containing projector.pth) to load before training."
+        ),
+    )
+    parser.add_argument(
+        "--checkpoint-path", "--checkpoint_path", "--resume", type=str, default=None,
+        help=(
+            "Explicit path to a step checkpoint directory (e.g. step_11940) to resume training from."
         ),
     )
     return parser.parse_args()
@@ -312,6 +344,7 @@ def generate_samples(vlm, val_dataset, tokenizer, device, num_samples=2, log_fil
             gsd_ratio = None
             if ref_gsd_m is not None:
                 sample_gsd_m = sample.get("gsd_m")
+                
                 ratio = (sample_gsd_m / ref_gsd_m) if sample_gsd_m is not None else 1.0
                 gsd_ratio = torch.tensor([ratio], dtype=torch.float32, device=device)
 
@@ -320,6 +353,7 @@ def generate_samples(vlm, val_dataset, tokenizer, device, num_samples=2, log_fil
                 input_ids=prompt_ids,
                 attention_mask=prompt_attention_mask,
                 gsd_ratio=gsd_ratio,
+                absolute_gsd=sample_gsd_m,
                 max_new_tokens=50,
                 do_sample=False,
             )
@@ -338,10 +372,11 @@ def generate_samples(vlm, val_dataset, tokenizer, device, num_samples=2, log_fil
 #####
 def build_dataset(c_data, split: str, tokenizer, max_length):
     """
-    Build a SARVLMDataset for the given split ("train"/"val"). Supports any
-    number of extra datasets via data.{split}_jsonl_2, _3, _4, ... (each with
-    its own optional data_root_N, defaulting to data.data_root) -- stops at
-    the first missing N.
+    Build a dataset for the given split ("train"/"val").
+    If train_caption is True, uses SARCaptioningDs for captioning data.
+    Otherwise, builds a SARVLMDataset supporting any number of extra datasets
+    via data.{split}_jsonl_2, _3, _4, ... (each with its own optional data_root_N,
+    defaulting to data.data_root) -- stops at the first missing N.
 
     train: every extra source is subsampled down to the primary dataset's
     *effective* record count -- i.e. after train_sample_size caps it (e.g.
@@ -349,6 +384,27 @@ def build_dataset(c_data, split: str, tokenizer, max_length):
     single source dominates by size.
     val: nothing is capped; every source contributes all of its records.
     """
+    # Check if captioning dataset should be used
+    train_caption = c_data.get("train_caption", False)
+
+    if train_caption:
+        # Use captioning dataset (SARCaptioningDs)
+        caption_json_path = c_data.get(f"caption_{split}_json")
+        caption_data_root = c_data.get("caption_data_root")
+
+        if not caption_json_path or not caption_data_root:
+            raise ValueError(
+                f"train_caption is True but caption_{split}_json or caption_data_root not configured"
+            )
+        print("using captioing dataset")
+        return SARCaptioningDs(
+            json_path=caption_json_path,
+            data_root=caption_data_root,
+            tokenizer=tokenizer,
+            max_length=max_length,
+        )
+
+    # Use standard SARVLMDataset
     primary_path = c_data[f"{split}_jsonl"]
     primary_root = c_data["data_root"]
     primary_sample_size = c_data.get(f"{split}_sample_size") if split == "train" else None
@@ -392,6 +448,7 @@ def main():
     c_lora = config["lora"]
     c_train = config["training"]
     c_georope = config.get("georope", {})
+    only_mlp = c_train.get("only_mlp", False)
 
     os.makedirs(c_train["save_dir"], exist_ok=True)
     shutil.copy(args.config, os.path.join(c_train["save_dir"], os.path.basename(args.config)))
@@ -438,6 +495,15 @@ def main():
     load_cpu = c_model.get("load_cpu", False)
     log(f"Vicuna loading mode: {'CPU-first' if load_cpu else 'Direct to GPU'}", c_train["log_file"])
 
+    # If only_mlp is True, disable LoRA (only projector is trainable)
+    if only_mlp:
+        log("only_mlp=True: Disabling LoRA (only projector will be trainable)", c_train["log_file"])
+        apply_lora = False
+        apply_gate_lora = False
+    else:
+        apply_lora = c_lora.get("is_lora", True)
+        apply_gate_lora = c_lora.get("is_gated_lora", False)
+
     vlm = SARVLM.from_vicuna(
         vicuna_path=c_model["vicuna_path"],
         sar_encoder=sar_encoder,
@@ -447,7 +513,8 @@ def main():
         lora_alpha=c_lora["alpha"],
         lora_dropout=c_lora["dropout"],
         lora_target_modules=c_lora["target_modules"],
-        apply_lora=True,
+        apply_lora=apply_lora,
+        apply_gate_lora=apply_gate_lora,
         torch_dtype=torch.float32,
         low_memory_load=True,
         load_cpu=load_cpu,
@@ -464,6 +531,69 @@ def main():
 
     log("Model moved to device", c_train["log_file"])
 
+    # ---------------------------------------------------------
+    # Resume: locate a checkpoint (unless --no-resume) and restore weights
+    # ---------------------------------------------------------
+    # Explicit --checkpoint-path CLI argument or training.checkpoint_path in config wins;
+    # otherwise auto-pick the latest step_N checkpoint under training.save_dir.
+    resume_path = None
+    if not args.no_resume:
+        resume_path = args.checkpoint_path or c_train.get("checkpoint_path") or find_latest_checkpoint(c_train["save_dir"])
+
+    # ---------------------------------------------------------
+    # Pre-trained MLP Projector Loading (initial load for new runs)
+    # ---------------------------------------------------------
+    load_mlp = c_train.get("load_mlp", False) or (args.mlp_checkpoint is not None)
+    mlp_checkpoint = args.mlp_checkpoint or c_train.get("mlp_checkpoint")
+
+    if load_mlp and resume_path is None:
+        if not mlp_checkpoint:
+            raise ValueError(
+                "load_mlp is True in config, but no MLP checkpoint was specified! "
+                "Please pass --mlp-checkpoint /path/to/projector.pth (or directory) "
+                "or set training.mlp_checkpoint in train_config.yaml."
+            )
+        file_path, missing, unexpected = vlm.load_projector_checkpoint(mlp_checkpoint)
+        log(f"Pre-trained MLP projector loaded from: {file_path}", c_train["log_file"])
+        if missing:
+            log(f"WARNING: missing keys in MLP checkpoint: {missing}", c_train["log_file"])
+        if unexpected:
+            log(f"WARNING: unexpected keys in MLP checkpoint: {unexpected}", c_train["log_file"])
+        if not missing and not unexpected:
+            log("MLP projector weights matched and loaded successfully.", c_train["log_file"])
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            gc.collect()
+    elif load_mlp and resume_path is not None:
+        if args.mlp_checkpoint is not None:
+            file_path, missing, unexpected = vlm.load_projector_checkpoint(args.mlp_checkpoint)
+            log(f"Pre-trained MLP projector loaded from: {file_path}", c_train["log_file"])
+        else:
+            log(
+                f"Resuming run from checkpoint {resume_path}; skipping separate MLP load "
+                f"as projector weights are restored from the step checkpoint.",
+                c_train["log_file"],
+            )
+
+    if resume_path:
+        load_model_weights(vlm, resume_path, device, c_train["log_file"], only_mlp=only_mlp)
+        # Clear cache after checkpoint loading
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            gc.collect()
+            log("CUDA cache cleared after checkpoint loading", c_train["log_file"])
+
+    trainable = 0
+    total = 0
+
+    for name, param in vlm.named_parameters():
+        total += param.numel()
+        if param.requires_grad:
+            trainable += param.numel()
+            print("TRAINABLE:", name, param.numel())
+
+    print(f"Trainable: {trainable:,} / {total:,}")
+    print(f"Trainable percentage: {100 * trainable / total:.4f}%")
     # Clear CUDA cache after model loading
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
@@ -480,27 +610,13 @@ def main():
         log(f"CKA loss enabled with lambda={lambda_CKA}", c_train["log_file"])
 
     # ---------------------------------------------------------
-    # Resume: locate a checkpoint (unless --no-resume) and restore weights
-    # ---------------------------------------------------------
-    # Explicit training.checkpoint_path wins; otherwise auto-pick the latest
-    # step_N checkpoint under training.save_dir. Optimizer/scaler state is
-    # restored later, once they exist.
-    resume_path = None
-    if not args.no_resume:
-        resume_path = c_train.get("checkpoint_path") or find_latest_checkpoint(c_train["save_dir"])
-
-    if resume_path:
-        load_model_weights(vlm, resume_path, device, c_train["log_file"])
-        # Clear cache after checkpoint loading
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-            gc.collect()
-            log("CUDA cache cleared after checkpoint loading", c_train["log_file"])
-
-    # ---------------------------------------------------------
     # Dataset
     # ---------------------------------------------------------
     log("Loading datasets...", c_train["log_file"])
+
+    train_caption = c_data.get("train_caption", False)
+    dataset_type = "Captioning (SARCaptioningDs)" if train_caption else "VQA (SARVLMDataset)"
+    log(f"Using {dataset_type}", c_train["log_file"])
 
     train_dataset = build_dataset(c_data, "train", tokenizer, c_train["max_length"])
     val_dataset = build_dataset(c_data, "val", tokenizer, c_train["max_length"])
@@ -528,6 +644,12 @@ def main():
         collate_fn=functools.partial(collate_fn, tokenizer=tokenizer, ref_gsd_m=ref_gsd_m),
         num_workers=4,
         pin_memory=True,
+    )
+    # logging numnber of samples
+    log(
+        f"Train dataloader: {len(train_loader)} batches ({len(train_dataset)} samples) | "
+        f"Val dataloader: {len(val_loader)} batches ({len(val_dataset)} samples)",
+        c_train["log_file"],
     )
 
     # ---------------------------------------------------------
@@ -565,13 +687,13 @@ def main():
 
     if is_CKA:
         def encoder_hook(module, input, output):
-            intermediate_outputs['encoder_output'] = output
+            intermediate_outputs['encoder_output'] = output.detach()
 
         def penultimate_hook(module, input, output):
-            intermediate_outputs['penultimate_hidden'] = output
+            intermediate_outputs['penultimate_hidden'] = output[:256].detach()
 
         def final_hook(module, input, output):
-            intermediate_outputs['final_hidden'] = output
+            intermediate_outputs['final_hidden'] = output.detach()
 
         encoder_handle = vlm.sar_encoder.register_forward_hook(encoder_hook)
         num_layers = vlm._llama_model_ref.config.num_hidden_layers
@@ -598,6 +720,7 @@ def main():
             attention_mask = batch["attention_mask"].to(device)
             labels = batch["labels"].to(device)
             gsd_ratio = batch["gsd_ratio"].to(device) if "gsd_ratio" in batch else None
+            absolute_gsd = batch["absolute_gsd"].to(device) if "absolute_gsd" in batch else None
 
             with torch.cuda.amp.autocast(enabled=torch.cuda.is_available()):
                 outputs = vlm(
@@ -606,6 +729,8 @@ def main():
                     attention_mask=attention_mask,
                     labels=labels,
                     gsd_ratio=gsd_ratio,
+                    absolute_gsd = absolute_gsd
+                    
                 )
                 loss = outputs.loss / grad_acc_steps
 
@@ -660,6 +785,7 @@ def main():
                         global_step=global_step,
                         epoch=epoch,
                         log_file=c_train["log_file"],
+                        only_mlp=only_mlp,
                     )
                 except Exception as e:
                     log(
@@ -675,6 +801,7 @@ def main():
         try:
             save_checkpoint(
                 vlm=vlm,
+                only_mlp=only_mlp,
                 optimizer=optimizer,
                 scaler=scaler,
                 save_dir=c_train["save_dir"],

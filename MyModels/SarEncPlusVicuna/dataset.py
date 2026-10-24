@@ -305,7 +305,13 @@ def collate_fn(batch, tokenizer, ref_gsd_m=None):
             ],
             dtype=torch.float32,
         )
-
+        result["absolute_gsd"]=torch.tensor(
+            [
+                (item["gsd_m"] / 1.0) if item.get("gsd_m") is not None else 1.0
+                for item in batch
+            ],
+            dtype=torch.float32,
+        )
     return result
  
 
@@ -426,3 +432,179 @@ def collate_fn(batch, tokenizer, ref_gsd_m=None):
 #         "attention_mask": attention_mask,
 #         "labels": labels_padded
 #     }
+
+
+class SARCaptioningDs(Dataset):
+    """
+    Dataset for SARLANG-1M captioning data.
+    JSON array format with "messages" (role: user/assistant) and "images" fields.
+    Applies dynamic path transformations to image paths based on filename prefixes.
+    Skips records where the image file doesn't exist.
+    """
+    def __init__(
+        self,
+        json_path: str,
+        data_root: str,
+        tokenizer=None,
+        max_length: int = 512,
+        target_size: tuple = (512, 512),
+    ):
+        self.data_root = data_root
+        self.tokenizer = tokenizer
+        self.max_length = max_length
+        self.target_size = tuple(target_size)
+
+        # Load JSON array (not JSONL)
+        with open(json_path, 'r') as f:
+            all_records = json.load(f)
+
+        # Filter records to only those where the image file exists
+        self.records = []
+        skipped_count = 0
+        for record in all_records:
+            original_img_path = record["images"][0]
+            transformed_path = self._transform_image_path(original_img_path)
+            if os.path.exists(transformed_path):
+                self.records.append(record)
+            else:
+                skipped_count += 1
+
+        print(f"[SARCaptioningDs] Loaded {len(self.records)} records from {json_path}")
+        print(f"[SARCaptioningDs] Skipped {skipped_count} records due to missing images")
+
+        # Same system prompt as SARVLMDataset
+        self.system_prompt = "A chat between a curious user and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the user's questions."
+
+    def _transform_image_path(self, original_path: str) -> str:
+        """
+        Transform image path based on filename prefix rules:
+        - Replace /your_path/SARimages/ with data_root
+        - Add subdirectory based on filename prefix:
+          - GF2_, P_, SV_ -> DFC2023/
+          - Japan_, France_, USA_ -> OpenEarthMap-SAR/
+          - SN6_ -> SpaceNet6/
+        - Replace .png extension with .tif (actual files are .tif)
+        - For SpaceNet6: insert _SAR-Intensity_ after location name (e.g., Rotterdam)
+        """
+        # Extract filename from original path
+        filename = os.path.basename(original_path)
+
+        # Replace .png extension with .tif
+        if filename.endswith(".png"):
+            filename = filename[:-4] + ".tif"
+
+        # Determine subdirectory based on prefix
+        if filename.startswith(("GF2_", "P_", "SV_")):
+            subdir = "DFC2023"
+        elif filename.startswith(("Japan_", "France_", "USA_")):
+            subdir = "OpenEarthMap-SAR"
+        elif filename.startswith("SN6_"):
+            subdir = "SpaceNet6"
+            # For SpaceNet6, insert _SAR-Intensity_ after location name
+            # Pattern: SN6_Train_AOI_11_Rotterdam_ -> SN6_Train_AOI_11_Rotterdam_SAR-Intensity_
+            # Example: SN6_Train_AOI_11_Rotterdam_20190823140636_20190823140937_tile_10424.tif
+            #          -> SN6_Train_AOI_11_Rotterdam_SAR-Intensity_20190823140636_20190823140937_tile_10424.tif
+            parts = filename.split('_')
+            if len(parts) >= 5:  # SN6_Train_AOI_11_Location_...
+                # Insert _SAR-Intensity_ after the location (parts[4])
+                parts.insert(5, 'SAR-Intensity')
+                filename = '_'.join(parts)
+        else:
+            subdir = ""  # No subdirectory for other prefixes
+
+        # Construct final path
+        if subdir:
+            path = os.path.join(self.data_root, subdir, filename)
+        else:
+            path = os.path.join(self.data_root, filename)
+
+        return path
+
+    def __len__(self):
+        return len(self.records)
+
+    def __getitem__(self, idx):
+        record = self.records[idx]
+
+        # 1. Load SAR Image with path transformation
+        original_img_path = record["images"][0]
+        abs_img_path = self._transform_image_path(original_img_path)
+
+        # Load the SAR patch
+        try:
+            img_np = load_sar_array(abs_img_path)
+        except Exception as e:
+            raise RuntimeError(
+                f"Failed to read image at index {idx}: {abs_img_path} "
+                f"(original: {original_img_path}) "
+                f"({type(e).__name__}: {e})"
+            ) from e
+
+        img_tensor = torch.from_numpy(img_np.copy()).float()
+
+        # Ensure channel-first format: [C, H, W]
+        if img_tensor.ndim == 2:
+            img_tensor = img_tensor.unsqueeze(0)  # [1, H, W] -> [1, H, W]
+        elif img_tensor.ndim == 3:
+            # If loaded as [H, W, C], convert to [C, H, W]
+            if img_tensor.shape[-1] < img_tensor.shape[0]:
+                img_tensor = img_tensor.permute(2, 0, 1)
+            # Keep only first channel if multi-channel (SAR should be single-band)
+            if img_tensor.shape[0] > 1:
+                img_tensor = img_tensor[0:1, :, :]  # [C, H, W] -> [1, H, W]
+
+        # Resize to target_size (512x512)
+        current_size = tuple(img_tensor.shape[-2:])  # [H, W]
+        if current_size != self.target_size:
+            img_tensor = F.interpolate(
+                img_tensor.unsqueeze(0),  # -> [1, C, H, W]
+                size=self.target_size,
+                mode="bilinear",
+                align_corners=False,
+            ).squeeze(0)
+
+        # 2. Parse Messages (role: user/assistant format)
+        messages = record["messages"]
+        user_text = ""
+        assistant_text = ""
+        for msg in messages:
+            if msg["role"] == "user":
+                user_text = msg["content"]
+                # Remove <image>\n or <image> if present
+                user_text = user_text.replace("<image>\n", "").replace("<image>", "")
+            elif msg["role"] == "assistant":
+                assistant_text = msg["content"]
+
+        # 3. Format Prompt (Vicuna v1.5 style)
+        prompt = f"{self.system_prompt} USER: {user_text} ASSISTANT:"
+        answer = f" {assistant_text}{self.tokenizer.eos_token}"
+
+        # 4. Tokenize
+        prompt_tokens = self.tokenizer(
+            prompt, add_special_tokens=True, return_tensors="pt"
+        ).input_ids[0]
+
+        answer_tokens = self.tokenizer(
+            answer, add_special_tokens=False, return_tensors="pt"
+        ).input_ids[0]
+
+        input_ids = torch.cat([prompt_tokens, answer_tokens])
+
+        # 5. Create Labels (Mask prompt with -100)
+        labels = torch.cat([
+            torch.full_like(prompt_tokens, -100),
+            answer_tokens
+        ])
+
+        # Truncate to max length
+        if len(input_ids) > self.max_length:
+            input_ids = input_ids[:self.max_length]
+            labels = labels[:self.max_length]
+
+        # Captioning dataset may not have GSD
+        return {
+            "sar_input": img_tensor,
+            "input_ids": input_ids,
+            "labels": labels,
+            "gsd_m": None,
+        }

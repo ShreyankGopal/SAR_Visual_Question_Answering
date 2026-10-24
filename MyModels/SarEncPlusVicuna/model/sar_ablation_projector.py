@@ -35,3 +35,61 @@ class SARAblationProjector(nn.Module):
     @property
     def config(self):
         return {"mm_projector_type": 'sar_mlp'}
+
+    def load_checkpoint(self, checkpoint_path: str):
+        """
+        Load weights from a checkpoint path (.pth file or directory containing projector.pth).
+        Handles nested dicts ('projector_state_dict', 'projector', 'model', 'state_dict')
+        and strips common prefixes ('projector.', 'mm_projector.', 'model.mm_projector.').
+        """
+        import os
+        if not os.path.exists(checkpoint_path):
+            raise FileNotFoundError(f"Projector checkpoint path does not exist: {checkpoint_path}")
+
+        if os.path.isdir(checkpoint_path):
+            candidates = ["projector.pth", "sar_projector.pth"]
+            file_path = None
+            for cand in candidates:
+                cand_path = os.path.join(checkpoint_path, cand)
+                if os.path.exists(cand_path):
+                    file_path = cand_path
+                    break
+            if file_path is None:
+                pths = [os.path.join(checkpoint_path, f) for f in os.listdir(checkpoint_path) if f.endswith(".pth")]
+                if pths:
+                    file_path = pths[0]
+                else:
+                    raise FileNotFoundError(f"No .pth file found in directory: {checkpoint_path}")
+        else:
+            file_path = checkpoint_path
+
+        try:
+            state = torch.load(file_path, map_location="cpu", weights_only=True)
+        except Exception:
+            state = torch.load(file_path, map_location="cpu", weights_only=False)
+
+        # Unwrap if nested
+        for key in ("projector_state_dict", "projector", "model", "state_dict"):
+            if isinstance(state, dict) and key in state and isinstance(state[key], dict):
+                state = state[key]
+                break
+
+        # Strip prefixes
+        cleaned_state = {}
+        for k, v in state.items():
+            new_k = k
+            for prefix in ("model.mm_projector.", "mm_projector.", "projector."):
+                if new_k.startswith(prefix):
+                    new_k = new_k[len(prefix):]
+                    break
+            cleaned_state[new_k] = v
+
+        # Match dtype
+        target_dtype = next(self.parameters()).dtype
+        cleaned_state = {
+            k: (v.to(dtype=target_dtype) if torch.is_tensor(v) and v.is_floating_point() else v)
+            for k, v in cleaned_state.items()
+        }
+
+        missing, unexpected = self.load_state_dict(cleaned_state, strict=False)
+        return file_path, missing, unexpected

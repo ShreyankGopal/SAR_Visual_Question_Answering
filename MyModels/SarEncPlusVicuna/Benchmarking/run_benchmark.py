@@ -145,11 +145,12 @@ def discover_eval_datasets(c_data: dict) -> list:
         if not given:
             break
         paths = list(given)
-        for p in given:
-            for a, b in (("val", "test"), ("test", "val")):
-                s = _swap_split(p, a, b)
-                if s and s not in paths:
-                    paths.append(s)
+        # Commented out: Only use explicitly given files, do not add sibling splits
+        # for p in given:
+        #     for a, b in (("val", "test"), ("test", "val")):
+        #         s = _swap_split(p, a, b)
+        #         if s and s not in paths:
+        #             paths.append(s)
         name = c_data.get(f"dataset_name{sfx}") or Path(given[0]).parent.parent.name or Path(given[0]).stem
         datasets.append({
             "name": name,
