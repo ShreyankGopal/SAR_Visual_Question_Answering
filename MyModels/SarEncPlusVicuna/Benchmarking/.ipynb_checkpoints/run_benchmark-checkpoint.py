@@ -13,14 +13,18 @@ Metrics
 Usage
 -----
   python Benchmarking/run_benchmark.py --subset 10   # smoke-test
-  python Benchmarking/run_benchmark.py --split test
-  python Benchmarking/run_benchmark.py --split val
-  python Benchmarking/run_benchmark.py --split both
+  python Benchmarking/run_benchmark.py --category "presence"
+  python Benchmarking/run_benchmark.py --checkpoint checkpoints/step_1000
 
 Outputs (all saved to Benchmarking/)
-  results_<split>_<ts>.csv   – per-sample rows with all metric scores
-  results_<split>_<ts>.json  – same, JSON format
-  summary_<split>_<ts>.txt   – human-readable dataset-wide + per-category report
+  results_val_<ts>.csv   – per-sample rows with all metric scores
+  results_val_<ts>.json  – same, JSON format
+  summary_val_<ts>.txt   – human-readable dataset-wide + per-category report
+
+Notes
+-----
+  Val sets that share a dataset_name (e.g. OEM val + OEM test, both named
+  "openearthmap") are pooled into a single block in the summary.
 """
 
 # ===========================================================================
@@ -30,6 +34,7 @@ import argparse
 import csv
 import json
 import os
+import random
 import re
 import sys
 import time
@@ -55,24 +60,7 @@ from dataset import SARVLMDataset, collate_fn
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
-DATA_DIR = Path("/home/saishruti/Research1/Shreyank_20_credit/DataGen/data")
 DATA_ROOT = Path("/home/saishruti/Research1/Shreyank_20_credit/DataGen")
-
-# ---------------------------------------------------------------------------
-# Domain constants
-# ---------------------------------------------------------------------------
-LAND_COVER_CLASSES = [
-    "Bareland", "Rangeland", "Developed Space", "Road",
-    "Tree", "Water", "Agriculture Land", "Building",
-]
-
-SYSTEM_PROMPT = (
-    "A chat between a curious user and an artificial intelligence assistant. "
-    "The assistant gives helpful, detailed, and polite answers to the user's questions. "
-    f"The possible land-cover classes are: {', '.join(LAND_COVER_CLASSES)}."
-)
-
-ONE_WORD_SUFFIX = " Answer in one word only."
 
 # ===========================================================================
 # Helpers
@@ -100,18 +88,6 @@ def load_jsonl(path: Path) -> list:
     return records
 
 
-def normalise(text: str) -> str:
-    """Lowercase, strip punctuation, collapse whitespace."""
-    text = text.lower()
-    text = re.sub(r"[^\w\s]", "", text)
-    return " ".join(text.split())
-
-
-def is_single_word_gt(gt: str) -> bool:
-    """True if the ground truth normalises to a single token."""
-    return len(normalise(gt).split()) == 1
-
-
 def extract_question_and_gt(record: dict):
     """Return (human_question, gt_answer) from a JSONL record."""
     convs = record.get("conversations", [])
@@ -124,21 +100,123 @@ def extract_question_and_gt(record: dict):
     return question, gt
 
 
-def get_latest_checkpoint(checkpoints_dir: str):
-    """Find the latest checkpoint directory based on step number."""
+def normalise(text: str) -> str:
+    """Lowercase, strip punctuation, collapse whitespace."""
+    text = text.lower()
+    text = re.sub(r"[^\w\s]", "", text)
+    return " ".join(text.split())
+
+
+def is_single_word_gt(gt: str) -> bool:
+    """True if the ground truth normalises to a single token."""
+    return len(normalise(gt).split()) == 1
+
+
+def discover_val_datasets(c_data: dict) -> list:
+    """
+    Collect every val dataset defined in the config's `data` block.
+
+    Looks for val_jsonl / data_root (primary), then val_jsonl_2 / data_root_2,
+    val_jsonl_3 / data_root_3, etc. (same numbering scheme already used for
+    train_jsonl_N / data_root_N). An optional dataset_name_N key gives it a
+    label; otherwise the label is inferred from the jsonl path.
+    """
+    datasets = []
+
+    def _name_for(key_suffix: str, jsonl_path: str) -> str:
+        name_key = f"dataset_name{key_suffix}"
+        if c_data.get(name_key):
+            return c_data[name_key]
+        return Path(jsonl_path).parent.parent.name or Path(jsonl_path).stem
+
+    if c_data.get("val_jsonl"):
+        datasets.append({
+            "name": _name_for("", c_data["val_jsonl"]),
+            "val_jsonl": c_data["val_jsonl"],
+            "data_root": c_data["data_root"],
+        })
+
+    i = 2
+    while c_data.get(f"val_jsonl_{i}"):
+        datasets.append({
+            "name": _name_for(f"_{i}", c_data[f"val_jsonl_{i}"]),
+            "val_jsonl": c_data[f"val_jsonl_{i}"],
+            "data_root": c_data[f"data_root_{i}"],
+        })
+        i += 1
+
+    return datasets
+
+
+def list_checkpoints_desc(checkpoints_dir: str) -> list:
+    """All step_* checkpoint dirs under checkpoints_dir, sorted newest-first."""
     checkpoint_dirs = glob.glob(os.path.join(checkpoints_dir, "step_*"))
     if not checkpoint_dirs:
         raise ValueError(f"No checkpoints found in {checkpoints_dir}")
-    
+
     step_dirs = []
     for dir_path in checkpoint_dirs:
         dir_name = os.path.basename(dir_path)
-        step_num = int(dir_name.replace("step_", ""))
+        try:
+            step_num = int(dir_name.replace("step_", ""))
+        except ValueError:
+            continue
         step_dirs.append((step_num, dir_path))
-    
+
     step_dirs.sort(key=lambda x: x[0], reverse=True)
-    latest_step, latest_path = step_dirs[0]
+    return step_dirs
+
+
+def get_latest_checkpoint(checkpoints_dir: str):
+    """Find the latest checkpoint directory based on step number."""
+    latest_step, latest_path = list_checkpoints_desc(checkpoints_dir)[0]
     return latest_path, latest_step
+
+
+def checkpoint_is_healthy(vlm, checkpoint_path: str, health_batch: dict, device) -> bool:
+    """
+    Load adapter + projector weights from checkpoint_path into vlm, then run
+    one real forward pass on health_batch and check the loss/logits are
+    finite. Returns False (without raising) on any load or NaN/Inf failure,
+    so the caller can fall back to the next-older checkpoint.
+    """
+    try:
+        vlm.hybrid_vicuna.load_adapter(checkpoint_path, adapter_name="default")
+        projector_path = os.path.join(checkpoint_path, "projector.pth")
+        vlm.projector.load_state_dict(torch.load(projector_path, map_location=device))
+    except Exception as e:
+        log(f"    Failed to load weights from {checkpoint_path}: {e}")
+        return False
+
+    vlm.eval()
+    try:
+        with torch.no_grad():
+            output = vlm(
+                sar_input=health_batch["sar_input"].to(device, dtype=torch.float32),
+                input_ids=health_batch["input_ids"].to(device),
+                attention_mask=health_batch["attention_mask"].to(device),
+                labels=health_batch["labels"].to(device),
+            )
+        loss = output.loss
+        if loss is None or not torch.isfinite(loss):
+            log(f"    Non-finite loss ({loss}) from {checkpoint_path}")
+            return False
+        if output.logits is not None and not torch.isfinite(output.logits).all():
+            log(f"    Non-finite logits from {checkpoint_path}")
+            return False
+        return True
+    except Exception as e:
+        log(f"    Forward pass failed for {checkpoint_path}: {e}")
+        return False
+
+
+def build_health_check_batch(c_data: dict, c_train: dict, tokenizer) -> dict:
+    """One-sample batch (from the primary val set) used to sanity-check a checkpoint."""
+    health_dataset = SARVLMDataset(
+        c_data["val_jsonl"], c_data["data_root"], tokenizer, max_length=c_train["max_length"]
+    )
+    health_dataset.records = health_dataset.records[:1]
+    return collate_fn([health_dataset[0]], tokenizer)
 
 
 # ===========================================================================
@@ -212,14 +290,6 @@ def load_model(config_path: str, checkpoint_path: str = None):
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.unk_token
 
-    # Find latest checkpoint if not specified
-    if checkpoint_path is None:
-        checkpoint_path, global_step = get_latest_checkpoint(c_train["save_dir"])
-        log(f"Using latest checkpoint: {checkpoint_path} (step {global_step})")
-    else:
-        global_step = int(checkpoint_path.split("_")[-1])
-        log(f"Using specified checkpoint: {checkpoint_path}")
-
     # Load SAR encoder
     log("Loading SAR Encoder...")
     sar_encoder = build_sar_encoder(
@@ -246,63 +316,138 @@ def load_model(config_path: str, checkpoint_path: str = None):
     vlm = vlm.to(device)
     vlm.hybrid_vicuna.gradient_checkpointing_enable()
 
-    # Load checkpoint weights
-    log(f"Loading checkpoint weights from {checkpoint_path}...")
-    vlm.hybrid_vicuna.load_adapter(checkpoint_path, adapter_name="defualt")
-    
-    projector_path = os.path.join(checkpoint_path, "projector.pth")
-    vlm.projector.load_state_dict(torch.load(projector_path, map_location=device))
+    if checkpoint_path is not None:
+        # User explicitly chose this checkpoint -- load it as-is, no health check.
+        global_step = int(checkpoint_path.rstrip("/").split("_")[-1])
+        log(f"Loading specified checkpoint: {checkpoint_path}")
+        vlm.hybrid_vicuna.load_adapter(checkpoint_path, adapter_name="default")
+        projector_path = os.path.join(checkpoint_path, "projector.pth")
+        vlm.projector.load_state_dict(torch.load(projector_path, map_location=device))
+    else:
+        # Search checkpoints from oldest -> newest in jumps of 5 entries.
+        # Once the first invalid checkpoint is found, walk backward one entry
+        # at a time to identify the last valid checkpoint.
+        candidates = list_checkpoints_desc(c_train["save_dir"])
+        # list_checkpoints_desc() returns newest-first, so reverse it here.
+        candidates = list(reversed(candidates))
+
+        log(f"Found {len(candidates)} checkpoint(s) in {c_train['save_dir']}")
+        log("Building 1-sample health-check batch from the primary val set...")
+        health_batch = build_health_check_batch(c_data, c_train, tokenizer)
+
+        if not candidates:
+            raise RuntimeError(f"No checkpoints found in {c_train['save_dir']}")
+
+        # ------------------------------------------------------------------
+        # Phase 1: coarse forward search, checking every 5th checkpoint.
+        # ------------------------------------------------------------------
+        invalid_idx = None
+
+        for idx in range(0, len(candidates), 5):
+            step_num, cand_path = candidates[idx]
+            log(f"  Coarse check [{idx + 1}/{len(candidates)}]: "
+                f"step_{step_num} ({cand_path}) ...")
+
+            if checkpoint_is_healthy(vlm, cand_path, health_batch, device):
+                log(f"  -> step_{step_num} is healthy.")
+                continue
+
+            log(f"  -> step_{step_num} is INVALID. "
+                f"Last valid checkpoint is within the previous 5 entries.")
+            invalid_idx = idx
+            break
+
+        # ------------------------------------------------------------------
+        # Phase 2: if an invalid checkpoint was found, walk backward from it
+        # one checkpoint at a time until the last valid checkpoint is found.
+        # ------------------------------------------------------------------
+        chosen = None
+
+        if invalid_idx is not None:
+            for idx in range(invalid_idx, -1, -1):
+                step_num, cand_path = candidates[idx]
+
+                # The invalid checkpoint was already checked in Phase 1.
+                if idx == invalid_idx:
+                    log(f"  Walking backward: step_{step_num} is known invalid.")
+                    continue
+
+                log(f"  Backward check [{idx + 1}/{len(candidates)}]: "
+                    f"step_{step_num} ({cand_path}) ...")
+
+                if checkpoint_is_healthy(vlm, cand_path, health_batch, device):
+                    log(f"  -> step_{step_num} is the LAST VALID checkpoint.")
+                    chosen = (cand_path, step_num)
+                    break
+
+                log(f"  -> step_{step_num} is invalid, continuing backward.")
+
+        else:
+            # No invalid checkpoint was encountered in the coarse scan.
+            step_num, cand_path = candidates[-1]
+            log(f"  All coarse checkpoints are healthy; checking latest "
+                f"checkpoint step_{step_num} ...")
+
+            if checkpoint_is_healthy(vlm, cand_path, health_batch, device):
+                log(f"  -> step_{step_num} is the LAST VALID checkpoint.")
+                chosen = (cand_path, step_num)
+            else:
+                log(f"  -> step_{step_num} is invalid. Walking backward...")
+                for idx in range(len(candidates) - 2, -1, -1):
+                    step_num, cand_path = candidates[idx]
+                    log(f"  Backward check [{idx + 1}/{len(candidates)}]: "
+                        f"step_{step_num} ({cand_path}) ...")
+
+                    if checkpoint_is_healthy(vlm, cand_path, health_batch, device):
+                        log(f"  -> step_{step_num} is the LAST VALID checkpoint.")
+                        chosen = (cand_path, step_num)
+                        break
+
+                    log(f"  -> step_{step_num} is invalid, continuing backward.")
+
+        if chosen is None:
+            raise RuntimeError(
+                f"No healthy checkpoint found in {c_train['save_dir']} "
+                f"(all {len(candidates)} candidate(s) failed to load or produced NaN/Inf)"
+            )
+
+        checkpoint_path, global_step = chosen
 
     log("Model loaded successfully")
     return vlm, tokenizer, device, global_step
 
 
 # ===========================================================================
-# Inference for one record
+# Inference for one record (using SARVLMDataset pipeline)
 # ===========================================================================
 @torch.no_grad()
-def run_one(record: dict, vlm, tokenizer, device) -> str:
-    """Generate prediction for a single record."""
-    # Load image
-    img_path = DATA_ROOT / record["image"]
-    try:
-        import tifffile
-        img_np = tifffile.imread(img_path)
-        img_tensor = torch.from_numpy(img_np).float()
-        if img_tensor.ndim == 2:
-            img_tensor = img_tensor.unsqueeze(0)
-    except Exception as e:
-        log(f"Error loading image {img_path}: {e}")
-        return ""
+def run_one(batch: dict, vlm, tokenizer, device) -> str:
+    """Generate prediction for a single batch using the same pipeline as val.py."""
+    sar_input = batch["sar_input"].to(device, dtype=torch.float32)
+    input_ids = batch["input_ids"].to(device)
+    attention_mask = batch["attention_mask"].to(device)
 
-    # Get question and ground truth
-    question, gt = extract_question_and_gt(record)
+    # The dataset masks the prompt with -100, so the first non -100 is the answer start
+    labels = batch["labels"][0]
+    first_answer_position = 0
+    for i, label in enumerate(labels):
+        if label != -100:
+            first_answer_position = i
+            break
 
-    # Append one-word instruction if GT is a single word
-    if is_single_word_gt(gt):
-        question = question + ONE_WORD_SUFFIX
+    prompt_ids = input_ids[:, :first_answer_position]
+    prompt_attention_mask = attention_mask[:, :first_answer_position]
 
-    # Format prompt with system prompt
-    prompt = f"{SYSTEM_PROMPT} USER: {question} ASSISTANT:"
-
-    # Tokenize
-    input_ids = tokenizer(prompt, return_tensors="pt").input_ids[0]
-    input_ids = input_ids.unsqueeze(0).to(device)
-    attention_mask = torch.ones_like(input_ids).to(device)
-
-    # Prepare SAR input
-    sar_input = img_tensor.unsqueeze(0).to(device, dtype=torch.float32)
-
-    # Generate
     vlm.eval()
     try:
         output_ids = vlm.generate(
             sar_input=sar_input,
-            input_ids=input_ids,
-            attention_mask=attention_mask,
+            input_ids=prompt_ids,
+            attention_mask=prompt_attention_mask,
             max_new_tokens=64,
             do_sample=False
         )
+        # vlm.generate() returns ONLY the generated tokens (not the full sequence)
         generated_text = tokenizer.decode(output_ids[0], skip_special_tokens=True)
         return generated_text.strip()
     except Exception as e:
@@ -311,27 +456,50 @@ def run_one(record: dict, vlm, tokenizer, device) -> str:
 
 
 # ===========================================================================
-# Main benchmark loop
+# Main benchmark loop (using SARVLMDataset)
 # ===========================================================================
-def run_benchmark(records: list, vlm, tokenizer, device, split_name: str) -> list:
+def run_benchmark(dataset, meta, vlm, tokenizer, device, split_name: str,
+                  dataset_name: str = "val") -> list:
+    """
+    dataset : SARVLMDataset (records are tuples; used for model inputs + GT)
+    meta    : list of raw JSONL dicts, index-aligned with dataset.records
+              (used for category / question / id / image)
+    """
     results = []
-    n = len(records)
 
-    for idx, record in enumerate(records):
-        rec_id   = record.get("id", f"idx_{idx}")
+    val_loader = DataLoader(
+        dataset,
+        batch_size=1,
+        shuffle=False,
+        collate_fn=lambda b: collate_fn(b, tokenizer),
+        num_workers=0,
+        pin_memory=False
+    )
+
+    n = len(dataset)
+
+    for idx, batch in enumerate(val_loader):
+        # Ground truth from labels (convert -100 to pad so decode skips them)
+        labels = batch["labels"].clone()
+        labels[labels == -100] = tokenizer.pad_token_id
+        gt_text = tokenizer.decode(labels[0], skip_special_tokens=True)
+
+        # Metadata from the raw JSONL dict
+        record = meta[idx]
         category = record.get("category", "unknown")
-        question, gt = extract_question_and_gt(record)
+        question, _ = extract_question_and_gt(record)
+        rec_id = record.get("id", f"idx_{idx}")
 
         t0 = time.time()
         try:
-            pred    = run_one(record, vlm, tokenizer, device)
+            pred    = run_one(batch, vlm, tokenizer, device)
             elapsed = time.time() - t0
-            metrics = score_all(pred, gt)
+            metrics = score_all(pred, gt_text)
             error   = None
         except Exception as e:
             pred    = ""
             elapsed = time.time() - t0
-            metrics = {"is_single_word": is_single_word_gt(gt),
+            metrics = {"is_single_word": is_single_word_gt(gt_text),
                        "exact_match": None,
                        "bleu1": 0.0, "bleu2": 0.0, "bleu3": 0.0, "bleu4": 0.0,
                        "rouge1": 0.0, "rouge2": 0.0, "rougeL": 0.0}
@@ -339,23 +507,23 @@ def run_benchmark(records: list, vlm, tokenizer, device, split_name: str) -> lis
             log(f"  ERROR on {rec_id}: {e}")
 
         row = {
-            "id":         rec_id,
-            "split":      split_name,
-            "category":   category,
-            "image":      record.get("image", ""),
-            "question":   question,
-            "ground_truth": gt,
-            "prediction": pred,
-            "elapsed_s":  round(elapsed, 2),
-            "error":      error,
+            "id":           rec_id,
+            "dataset":      dataset_name,
+            "split":        split_name,
+            "category":     category,
+            "image":        record.get("image", ""),
+            "question":     question,
+            "ground_truth": gt_text,
+            "prediction":   pred,
+            "elapsed_s":    round(elapsed, 2),
+            "error":        error,
             **{k: (round(v, 4) if isinstance(v, float) else v) for k, v in metrics.items()},
         }
         results.append(row)
 
-        # Live progress line
         em_str = f" EM={metrics['exact_match']:.0f}" if metrics["exact_match"] is not None else ""
         print(
-            f"\r  {idx+1}/{n} ({(idx+1)/n*100:.0f}%)"
+            f"\r  [{dataset_name}] {idx+1}/{n} ({(idx+1)/n*100:.0f}%)"
             f"  bleu1={metrics['bleu1']:.3f}"
             f"  rouge1={metrics['rouge1']:.3f}"
             f"{em_str}"
@@ -388,20 +556,17 @@ def _stats_block(rows, prefix="  ") -> list:
     lines = []
     lines.append(f"{prefix}Samples          : {n}  (single-word GT: {len(sw)}, multi-word: {len(mw)})")
 
-    # BLEU
     for k in ["bleu1", "bleu2", "bleu3", "bleu4"]:
         v = _safe_mean([r[k] for r in valid])
         lines.append(f"{prefix}{k.upper():<10}: {v:.4f}")
 
-    # ROUGE
     for k in ["rouge1", "rouge2", "rougeL"]:
         v = _safe_mean([r[k] for r in valid])
         lines.append(f"{prefix}{k.upper():<10}: {v:.4f}")
 
-    # Exact match (single-word only)
     if sw:
         em = _safe_mean([r["exact_match"] for r in sw])
-        lines.append(f"{prefix}EXACT MATCH (single-word GT only): {em:.4f}  ({int(em*len(sw))}/{len(sw)} correct)")
+        lines.append(f"{prefix}EXACT MATCH (single-word GT only): {em:.4f}  ({int(round(em*len(sw)))}/{len(sw)} correct)")
 
     return lines
 
@@ -410,6 +575,10 @@ def _stats_block(rows, prefix="  ") -> list:
 # Save + Report
 # ===========================================================================
 def save_results(results: list, split_name: str) -> None:
+    if not results:
+        log("No results to save.")
+        return
+
     ts   = datetime.now().strftime("%Y%m%d_%H%M%S")
     base = SCRIPT_DIR / f"results_{split_name}_{ts}"
 
@@ -428,34 +597,69 @@ def save_results(results: list, split_name: str) -> None:
     log(f"JSON -> {json_path}")
 
     # ── Summary report ────────────────────────────────────────────────────────
-    summary_lines = []
     W = 64
-
-    summary_lines += [
+    summary_lines = [
         "=" * W,
         f"  SAR-VLM Benchmark  --  {split_name.upper()} split",
         f"  Timestamp : {ts}",
         f"  Total samples : {len(results)}   Errors: {sum(1 for r in results if r['error'])}",
         "=" * W,
+    ]
+
+    # Rows sharing a dataset name (e.g. OEM val + test) are pooled here.
+    datasets = {}
+    for r in results:
+        datasets.setdefault(r["dataset"], []).append(r)
+
+    for ds_name in sorted(datasets):
+        ds_rows = datasets[ds_name]
+        summary_lines += [
+            "",
+            "#" * W,
+            f"  DATASET: {ds_name}  (n={len(ds_rows)})",
+            "#" * W,
+            "",
+            "  DATASET-WIDE STATISTICS",
+            "  " + "-" * (W - 2),
+        ]
+        summary_lines += _stats_block(ds_rows)
+
+        cats = {}
+        for r in ds_rows:
+            cats.setdefault(r["category"], []).append(r)
+
+        summary_lines += ["", "  PER-CATEGORY STATISTICS", "  " + "-" * (W - 2)]
+        for cat in sorted(cats):
+            summary_lines += [
+                "",
+                f"    [{cat}]  (n={len(cats[cat])})",
+                "    " + "-" * (W // 2),
+            ]
+            summary_lines += _stats_block(cats[cat], prefix="      ")
+
+    summary_lines += [
         "",
-        "DATASET-WIDE STATISTICS",
+        "=" * W,
+        "  OVERALL  (all datasets combined)",
+        "=" * W,
+        "",
+        "OVERALL DATASET-WIDE STATISTICS",
         "-" * W,
     ]
     summary_lines += _stats_block(results)
 
-    # Per-category
-    cats = {}
+    overall_cats = {}
     for r in results:
-        cats.setdefault(r["category"], []).append(r)
+        overall_cats.setdefault(r["category"], []).append(r)
 
-    summary_lines += ["", "PER-CATEGORY STATISTICS", "=" * W]
-    for cat in sorted(cats):
+    summary_lines += ["", "OVERALL PER-CATEGORY STATISTICS (pooled across datasets)", "-" * W]
+    for cat in sorted(overall_cats):
         summary_lines += [
             "",
-            f"  [{cat}]  (n={len(cats[cat])})",
+            f"  [{cat}]  (n={len(overall_cats[cat])})",
             "-" * (W // 2),
         ]
-        summary_lines += _stats_block(cats[cat], prefix="    ")
+        summary_lines += _stats_block(overall_cats[cat], prefix="    ")
 
     summary_lines += ["", "=" * W]
 
@@ -472,16 +676,16 @@ def save_results(results: list, split_name: str) -> None:
 # CLI + Entry point
 # ===========================================================================
 def parse_args():
-    p = argparse.ArgumentParser(description="Benchmark SAR-VLM on LULC QA datasets")
-    p.add_argument("--split",    choices=["test", "val", "both"], default="test")
+    p = argparse.ArgumentParser(description="Benchmark SAR-VLM on validation dataset")
     p.add_argument("--subset",   type=int, default=None,
-                   help="Evaluate only the first N samples (smoke-test)")
+                   help="Evaluate only the first N samples per dataset (smoke-test)")
     p.add_argument("--shuffle",  action="store_true",
                    help="Shuffle before taking --subset")
     p.add_argument("--category", type=str, default=None,
                    help="Filter to one question category")
     p.add_argument("--checkpoint", type=str, default=None,
-                   help="Path to specific checkpoint (e.g., checkpoints/step_1000)")
+                   help="Path to specific checkpoint (e.g., checkpoints/step_1000). "
+                        "Skips the checkpoint health search.")
     p.add_argument("--config", type=str, default="train_config.yaml",
                    help="Path to training config file")
     return p.parse_args()
@@ -490,7 +694,6 @@ def parse_args():
 def main():
     args = parse_args()
 
-    # Download NLTK punkt if needed
     import nltk
     try:
         nltk.data.find("tokenizers/punkt")
@@ -503,48 +706,76 @@ def main():
 
     log("=" * 60)
     log("SAR-VLM Benchmark Runner")
-    log(f"System prompt : {SYSTEM_PROMPT[:80]}...")
     log("=" * 60)
 
-    # Change to repo directory for imports
     os.chdir(REPO_DIR)
 
+    config = load_config(args.config)
+    c_data = config["data"]
+    c_train = config["training"]
+
     vlm, tokenizer, device, global_step = load_model(args.config, args.checkpoint)
+    log(f"Using checkpoint step: {global_step}")
 
-    gpu_alloc = torch.cuda.memory_allocated() / 1024**3
-    gpu_res   = torch.cuda.memory_reserved()  / 1024**3
-    log(f"GPU: {gpu_alloc:.2f} GB allocated / {gpu_res:.2f} GB reserved")
+    if torch.cuda.is_available():
+        gpu_alloc = torch.cuda.memory_allocated() / 1024**3
+        gpu_res   = torch.cuda.memory_reserved()  / 1024**3
+        log(f"GPU: {gpu_alloc:.2f} GB allocated / {gpu_res:.2f} GB reserved")
 
-    splits = ["test", "val"] if args.split == "both" else [args.split]
+    val_datasets = discover_val_datasets(c_data)
+    if not val_datasets:
+        raise ValueError("No val_jsonl found in config['data']")
+    log(f"\nFound {len(val_datasets)} val dataset(s): {[d['name'] for d in val_datasets]}")
 
-    for split in splits:
-        jsonl_path = DATA_DIR / f"{split}.jsonl"
-        if not jsonl_path.exists():
-            log(f"WARNING: {jsonl_path} not found -- skipping")
-            continue
+    all_results = []
+    for ds in val_datasets:
+        log(f"\nLoading dataset '{ds['name']}' from {ds['val_jsonl']} ...")
+        dataset = SARVLMDataset(
+            ds["val_jsonl"],
+            ds["data_root"],
+            tokenizer,
+            max_length=c_train["max_length"]
+        )
+        log(f"  Total samples: {len(dataset)}")
 
-        log(f"\nLoading {split}.jsonl ...")
-        records = load_jsonl(jsonl_path)
-        log(f"  Total records: {len(records)}")
+        # Raw JSONL dicts for metadata (category, question, id, image).
+        # SARVLMDataset stores records as tuples, so keep both lists aligned.
+        raw = load_jsonl(Path(ds["val_jsonl"]))
+        if len(raw) != len(dataset.records):
+            raise RuntimeError(
+                f"'{ds['name']}': JSONL has {len(raw)} lines but dataset has "
+                f"{len(dataset.records)} records -- SARVLMDataset is dropping samples, "
+                f"metadata can't be aligned by index."
+            )
+        pairs = list(zip(dataset.records, raw))
 
         if args.category:
-            records = [r for r in records if r.get("category") == args.category]
-            log(f"  After category filter '{args.category}': {len(records)}")
+            pairs = [p for p in pairs if p[1].get("category") == args.category]
+            log(f"  After category filter '{args.category}': {len(pairs)}")
 
         if args.shuffle:
-            import random; random.shuffle(records)
+            random.shuffle(pairs)
 
         if args.subset is not None:
-            records = records[: args.subset]
-            log(f"  Subset: {len(records)}")
+            pairs = pairs[: args.subset]
+            log(f"  Subset: {len(pairs)}")
 
-        log(f"\nStarting evaluation on {len(records)} records ...\n")
+        dataset.records = [p[0] for p in pairs]
+        meta = [p[1] for p in pairs]
+
+        if not dataset.records:
+            log(f"  Skipping '{ds['name']}' -- no samples after filtering")
+            continue
+
+        log(f"\nStarting evaluation on '{ds['name']}' ({len(dataset.records)} samples) ...\n")
         t0 = time.time()
-        results = run_benchmark(records, vlm, tokenizer, device, split)
+        results = run_benchmark(dataset, meta, vlm, tokenizer, device, "val",
+                                dataset_name=ds["name"])
         elapsed = time.time() - t0
-        log(f"Done in {elapsed:.1f}s  ({elapsed/len(results):.2f}s/sample)")
+        log(f"Done '{ds['name']}' in {elapsed:.1f}s  ({elapsed/len(results):.2f}s/sample)")
+        all_results.extend(results)
 
-        save_results(results, split)
+    save_results(all_results, "val")
 
     log("\nAll done!")
 

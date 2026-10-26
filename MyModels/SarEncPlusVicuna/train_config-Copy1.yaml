@@ -4,19 +4,20 @@
  
 data:
   train_jsonl: "/home/shruti/SAR_VQA/data/train.jsonl"
-  val_jsonl: "/home/shruti/SAR_VQA/data/test.jsonl" # ==> edited file
-  data_root: "/home/shruti/SAR_VQA/data/" # Prepended to image paths in JSON
- 
-  # Optional second dataset (same record format). If set, it is randomly
-  # subsampled down to the record count of train_jsonl / val_jsonl
-  # respectively, then concatenated in, so the two datasets end up
-  # balanced 1:1 rather than the second one dominating by size.
-  # Fill in the actual paths below (and data_root_2 if its images live
-  # under a different root than data_root).
-  train_jsonl_2: "/home/shruti/SAR_VQA/data/sardet100k_train.jsonl" # e.g. "/path/to/other_dataset/train.jsonl"
-  val_jsonl_2: "/home/shruti/SAR_VQA/data/sardet100k_test.jsonl"   # e.g. "/path/to/other_dataset/val.jsonl"
-  data_root_2: "/home/shruti/SAR_VQA/data/"   # e.g. "/path/to/other_dataset/" - defaults to data_root if left blank
-  sample_seed: 42   # controls which records get sampled from the second dataset
+  val_jsonl: "/home/shruti/SAR_VQA/data/test.jsonl"
+  data_root: "/home/shruti/SAR_VQA/data/"
+  dataset_name: "openearthmap"
+
+  train_jsonl_2: "/home/shruti/SAR_VQA/data/sardet100k_train.jsonl"
+  val_jsonl_2: "/home/shruti/SAR_VQA/data/sardet100k_test.jsonl"
+  data_root_2: "/home/shruti/SAR_VQA/data/"
+  dataset_name_2: "sardet100k"
+
+  val_jsonl_3: "/home/shruti/SAR_VQA/data/val.jsonl"
+  data_root_3: "/home/shruti/SAR_VQA/data/"
+  dataset_name_3: "openearthmap"
+
+  sample_seed: 42
  
 model:
   vicuna_path: "lmsys/vicuna-7b-v1.5"
@@ -40,6 +41,7 @@ training:
   weight_decay: 0.0
   max_length: 512 # Max text sequence length
   save_dir: "/home/shruti/SAR_VQA/SAR_Visual_Question_Answering/MyModels/SarEncPlusVicuna/checkpoints/benchmarks_sardet100k"
-  checkpoint_path: "/home/shruti/SAR_VQA/models/checkpoints/step_44840"
+  checkpoint_path: ""
+  checkpoint_every: 50
   log_file: "/home/shruti/SAR_VQA/models/training_sardet100k.log"
  
