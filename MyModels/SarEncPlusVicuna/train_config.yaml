@@ -36,24 +36,29 @@
 #Adding sardet100k
  
 data:
+  train_caption: false  # If true, loads captioning dataset (SARCaptioningDs); otherwise loads SARVLMDataset
   train_jsonl: "/home/saishruti/Research1/Shreyank_20_credit/DataGen/data/train_added.jsonl"
-  val_jsonl: "/home/saishruti/Research1/Shreyank_20_credit/DataGen/data/test_added.jsonl" 
-  data_root: "/home/saishruti/Research1/Shreyank_20_credit/DataGen/" 
-  train_jsonl_2: "/home/saishruti/Research1/Shreyank_20_credit/DataGen/sar_vqa/output/hrsid/data/train.jsonl" 
-  val_jsonl_2: "/home/saishruti/Research1/Shreyank_20_credit/DataGen/sar_vqa/output/hrsid/data/val.jsonl"   
-  data_root_2: "/mnt/data/shruti/SAR_VQA_Data/HRSID/"   
+  val_jsonl: "/home/saishruti/Research1/Shreyank_20_credit/DataGen/data/test_added.jsonl"
+  data_root: "/home/saishruti/Research1/Shreyank_20_credit/DataGen/"
+  train_jsonl_2: "/home/saishruti/Research1/Shreyank_20_credit/DataGen/sar_vqa/output/hrsid/data/train.jsonl"
+  val_jsonl_2: "/home/saishruti/Research1/Shreyank_20_credit/DataGen/sar_vqa/output/hrsid/data/val.jsonl"
+  data_root_2: "/mnt/data/shruti/SAR_VQA_Data/HRSID/"
   train_jsonl_3: "/home/saishruti/Research1/Shreyank_20_credit/DataGen/sar_vqa/output/ogsod/data/train.jsonl"
-  val_jsonl_3: "/home/saishruti/Research1/Shreyank_20_credit/DataGen/sar_vqa/output/ogsod/data/val.jsonl"   
-  data_root_3: "/mnt/data/shruti/SAR_VQA_Data/OGSOD/"   
+  val_jsonl_3: "/home/saishruti/Research1/Shreyank_20_credit/DataGen/sar_vqa/output/ogsod/data/val.jsonl"
+  data_root_3: "/mnt/data/shruti/SAR_VQA_Data/OGSOD/"
   train_jsonl_4: "/home/saishruti/Research1/Shreyank_20_credit/DataGen/sar_vqa/output/sar_aircraft/data/train.jsonl"
-  val_jsonl_4: "/home/saishruti/Research1/Shreyank_20_credit/DataGen/sar_vqa/output/sar_aircraft/data/val.jsonl"   
-  data_root_4: "/home/saishruti/Research1/Shreyank_20_credit/DataGen/sar_vqa/output/sar_aircraft/tiles/"   
+  val_jsonl_4: "/home/saishruti/Research1/Shreyank_20_credit/DataGen/sar_vqa/output/sar_aircraft/data/val.jsonl"
+  data_root_4: "/home/saishruti/Research1/Shreyank_20_credit/DataGen/sar_vqa/output/sar_aircraft/tiles/"
   train_jsonl_5: "/home/saishruti/Research1/Shreyank_20_credit/DataGen/sar_vqa/output/sived/data/train.jsonl"
-  val_jsonl_5: "/home/saishruti/Research1/Shreyank_20_credit/DataGen/sar_vqa/output/sived/data/val.jsonl"   
-  data_root_5: "/mnt/data/shruti/SAR_VQA_Data/SIVED/"   
+  val_jsonl_5: "/home/saishruti/Research1/Shreyank_20_credit/DataGen/sar_vqa/output/sived/data/val.jsonl"
+  data_root_5: "/mnt/data/shruti/SAR_VQA_Data/SIVED/"
   train_sample_size: 50000   # cap on primary train dataset; every extra train dataset is capped to the same count. null = primary uses all records, extras capped at its full count
   val_sample_size: null     # ignored -- val is never capped (all records from every val source)
   sample_seed: 42   # controls which records get sampled from the second dataset
+  # Captioning dataset paths (used when train_caption is true)
+  # caption_train_json: "/home/saishruti/Research1/Datasets/SARLANG1M/SARLANG-1M/Text/Caption/train/Caption_train.json"
+  # caption_val_json: "/home/saishruti/Research1/Datasets/SARLANG1M/SARLANG-1M/Text/Caption/test/Caption_test.json"
+  # caption_data_root: "/home/saishruti/Research1/Datasets/SARLANG1M/SARLANG-1M/SARimages_original"
  
 model:
   vicuna_path: "lmsys/vicuna-7b-v1.5"
@@ -63,6 +68,8 @@ model:
   load_cpu: false  # If true, load Vicuna on CPU first then move to GPU (slower but uses less peak memory)
  
 lora:
+  is_lora: true
+  is_gated_lora: false
   r: 16
   alpha: 32
   dropout: 0.05
@@ -105,11 +112,13 @@ training:
   learning_rate: 2.0e-5
   weight_decay: 0.0
   max_length: 512 # Max text sequence length
-  save_dir: "/home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/Full_Model_AR_CKA_Data_4OBJ/checkpoints/"
-  log_file: "/home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/Full_Model_AR_CKA_Data_4OBJ/training.log"
+  save_dir: "/home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/Full_Model_AR_MLP_Pretrained_Data_4OBJ/checkpoints/"
+  log_file: "/home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/Full_Model_AR_MLP_Pretrained_Data_4OBJ/training.log"
   # CKA (Centered Kernel Alignment) auxiliary loss, aligning the SAR
   # encoder's output with the LLM's penultimate-layer representation.
   # Off by default -- flip on deliberately, don't let a pull silently
   # change training behavior.
-  is_CKA: true
+  is_CKA: false
   lambda_CKA: 0.01
+  only_mlp: false # true if you want to train only mlp
+  load_mlp: true # true if you want to load an mlp checkpoint before training
