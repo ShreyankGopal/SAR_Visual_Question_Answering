@@ -109,6 +109,15 @@ def save_checkpoint(vlm, optimizer, scaler, save_dir, global_step, epoch, log_fi
     This is used when training only the MLP projector with frozen encoder
     and no LoRA on Vicuna.
     """
+    # Never save (or prune good checkpoints for) a model whose weights went NaN/inf.
+    # SystemExit, not an Exception: the training loop catches Exceptions around
+    # save_checkpoint and would otherwise just keep training a broken model.
+    bad = [n for n, p in vlm.named_parameters() if p.requires_grad and not torch.isfinite(p).all()]
+    if bad:
+        log(f"STOPPING at step {global_step}: {len(bad)} trainable tensors are NaN/inf "
+            f"(e.g. {bad[:3]}). Not saving. Resume from the last checkpoint in {save_dir}.", log_file)
+        raise SystemExit(1)
+
     checkpoint_dir = os.path.join(save_dir, f"step_{global_step}")
     os.makedirs(checkpoint_dir, exist_ok=True)
 

@@ -196,6 +196,12 @@ def load_checkpoint_weights(vlm, checkpoint_path: str, device) -> None:
     # raises if the checkpoint and the `mars:` config disagree.
     load_mars_adapters(vlm.sar_encoder, os.path.join(checkpoint_path, "mars_adapters.pth"), device)
 
+    # A diverged run saves NaN weights, which generate empty answers (all metrics 0).
+    bad = [n for n, p in vlm.named_parameters() if not torch.isfinite(p).all()]
+    if bad:
+        raise RuntimeError(f"{checkpoint_path} has {len(bad)} NaN/inf weight tensors "
+                           f"(e.g. {bad[:3]}); the training run diverged -- use an earlier checkpoint.")
+
 
 def checkpoint_is_healthy(vlm, checkpoint_path: str, health_batch: dict, device) -> bool:
     """
