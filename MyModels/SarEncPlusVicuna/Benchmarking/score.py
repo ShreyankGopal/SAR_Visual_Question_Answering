@@ -107,6 +107,15 @@ def fmt(x, lo=None, hi=None, pct=True):
     return f"{x * s:.2f}" + (f" [{lo * s:.2f}, {hi * s:.2f}]" if lo is not None else "")
 
 
+def line(name: str, s: dict) -> str:
+    """One printed row: every metric of a summarise() result."""
+    return (f"  {name:14s} n={s['n']:6d}  EM {fmt(s['em'], s['em_lo'], s['em_hi'])}  "
+            f"EM-1w {fmt(s['em_1w'], s['em_1w_lo'], s['em_1w_hi'])}  "
+            f"R-L {fmt(s['rougeL'], s['rougeL_lo'], s['rougeL_hi'])}  "
+            f"B-1 {fmt(s['bleu1'])}  B-4 {fmt(s['bleu4'])}  "
+            f"mIoU {fmt(s['miou'])}  Acc@0.5 {fmt(s['acc50'])} (boxes n={s['n_box']})")
+
+
 def main():
     ap = argparse.ArgumentParser(description="Re-score run_benchmark.py prediction files with one protocol")
     ap.add_argument("runs", nargs="+", help='"Label=path/to/predictions.jsonl" (first = reference)')
@@ -137,20 +146,18 @@ def main():
             if ds not in by_ds:
                 continue
             s = per_ds[ds] = summarise(by_ds[ds], args.boot, rng)
-            print(f"  {ds:14s} n={s['n']:6d}  EM {fmt(s['em'], s['em_lo'], s['em_hi'])}  "
-                  f"EM-1w {fmt(s['em_1w'], s['em_1w_lo'], s['em_1w_hi'])}  "
-                  f"R-L {fmt(s['rougeL'], s['rougeL_lo'], s['rougeL_hi'])}  "
-                  f"B-1 {fmt(s['bleu1'])}  B-4 {fmt(s['bleu4'])}  "
-                  f"mIoU {fmt(s['miou'])} (n={s['n_box']})")
+            print(line(ds, s))
             csv_rows += [{"run": label, "dataset": ds, "metric": k, "value": v}
                          for k, v in s.items() if v is not None]
         micro = summarise([r for ds in per_ds for r in by_ds[ds]], args.boot, rng)
         macro = {m: float(np.mean([per_ds[d][m] for d in per_ds if per_ds[d][m] is not None]))
                  for m in ["em", "em_1w", "rougeL", "bleu1", "bleu4"]}
-        print(f"  {'OVERALL micro':14s} n={micro['n']:6d}  EM {fmt(micro['em'], micro['em_lo'], micro['em_hi'])}  "
-              f"EM-1w {fmt(micro['em_1w'])}  R-L {fmt(micro['rougeL'])}")
+        print(line("OVERALL micro", micro))
         print(f"  {'OVERALL macro':14s} (mean of datasets)  EM {fmt(macro['em'])}  "
-              f"EM-1w {fmt(macro['em_1w'])}  R-L {fmt(macro['rougeL'])}\n")
+              f"EM-1w {fmt(macro['em_1w'])}  R-L {fmt(macro['rougeL'])}  "
+              f"B-1 {fmt(macro['bleu1'])}  B-4 {fmt(macro['bleu4'])}\n")
+        csv_rows += [{"run": label, "dataset": "overall_micro", "metric": k, "value": v}
+                     for k, v in micro.items() if v is not None]
         csv_rows += [{"run": label, "dataset": "overall_macro", "metric": k, "value": v} for k, v in macro.items()]
 
         if args.latex:

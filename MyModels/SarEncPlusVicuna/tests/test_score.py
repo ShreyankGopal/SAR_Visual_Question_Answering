@@ -61,3 +61,6 @@ def test_cli_runs(tmp_path):
     assert out.returncode == 0, out.stderr
     assert "Paired differences" in out.stdout and "LaTeX: New" in out.stdout
     assert os.path.exists(tmp_path / "s.csv")
+    micro = [l for l in out.stdout.splitlines() if "OVERALL micro" in l][0]
+    assert "B-4" in micro and "Acc@0.5" in micro
+    assert "overall_micro" in open(tmp_path / "s.csv").read()
