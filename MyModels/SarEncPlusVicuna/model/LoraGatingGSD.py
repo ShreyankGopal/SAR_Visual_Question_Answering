@@ -1,8 +1,11 @@
 import gc
+import json
 import math
+from pathlib import Path
 from typing import Optional, List
 import torch
 from torch import nn
+from safetensors.torch import save_file
 # ---------------------------------------------------------------------------
 # Gated LoRA
 # ---------------------------------------------------------------------------
@@ -243,3 +246,89 @@ def apply_gated_lora(
                 print(f"[apply_gated_lora] Applied Gated LoRA to {name}")
 
     return gated_lora_modules
+
+
+def save_gated_lora(model, save_dir, base_model_name=None):
+    """
+    Save Gated LoRA adapters to safetensors format.
+
+    Args:
+        model: The model containing GatedLoRALinear modules
+        save_dir: Directory to save the adapters
+        base_model_name: Name/path of the base model (for config)
+    """
+    save_dir = Path(save_dir)
+    save_dir.mkdir(parents=True, exist_ok=True)
+
+    adapter_state = {}
+    configs = []
+
+    for module_name, module in model.named_modules():
+        if not isinstance(module, GatedLoRALinear):
+            continue
+
+        prefix = f"{module_name}."
+
+        # Transpose to conventional PEFT LoRA weight orientation.
+        adapter_state[prefix + "lora_A.weight"] = (
+            module.gated_lora.lora_A.detach()
+            .T.contiguous().cpu()
+        )
+        adapter_state[prefix + "lora_B.weight"] = (
+            module.gated_lora.lora_B.detach()
+            .T.contiguous().cpu()
+        )
+
+        # Custom Gated LoRA parameters.
+        adapter_state[prefix + "gate_thresholds"] = (
+            module.gated_lora.gate_thresholds.detach()
+            .contiguous().cpu()
+        )
+        adapter_state[prefix + "gate_beta"] = (
+            module.gated_lora.gate_beta.detach()
+            .contiguous().cpu()
+        )
+
+        configs.append({
+            "module_name": module_name,
+            "in_features": module.in_features,
+            "out_features": module.out_features,
+            "r": module.gated_lora.rank,
+            "lora_alpha": module.gated_lora.alpha,
+            "lora_dropout": (
+                module.gated_lora.dropout.p
+                if isinstance(module.gated_lora.dropout, torch.nn.Dropout)
+                else 0.0
+            ),
+        })
+
+    if not adapter_state:
+        raise ValueError("No GatedLoRALinear modules found.")
+
+    save_file(adapter_state, str(save_dir / "adapter_model.safetensors"))
+
+    adapter_config = {
+        "peft_type": "LORA",
+        "task_type": "CAUSAL_LM",
+        "base_model_name_or_path": base_model_name,
+        "r": configs[0]["r"],
+        "lora_alpha": configs[0]["lora_alpha"],
+        "lora_dropout": configs[0]["lora_dropout"],
+        "target_modules": sorted({
+            name.rsplit(".", 1)[-1]
+            for name in (c["module_name"] for c in configs)
+        }),
+        "modules_to_save": None,
+
+        # Custom fields: standard PEFT doesn't interpret these.
+        "custom_method": "GatedLoRA",
+        "gate_type": "gsd_threshold_sigmoid",
+        "gate_parameters": ["gate_thresholds", "gate_beta"],
+        "lora_matrix_orientation": "peft",
+        "module_configs": configs,
+    }
+
+    with open(save_dir / "adapter_config.json", "w") as f:
+        json.dump(adapter_config, f, indent=2)
+
+    print(f"Saved {len(configs)} Gated LoRA modules to {save_dir}")

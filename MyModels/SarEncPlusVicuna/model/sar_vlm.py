@@ -253,10 +253,14 @@ class SARVLM(nn.Module):
         
 
         self.hybrid_vicuna = hybrid_vicuna
-        if not apply_lora:
-
+        if not apply_lora and not apply_gate_lora:
             self.hybrid_vicuna.requires_grad_(False)
             print("froze vicuna params -> only mlp trained")
+        elif apply_gate_lora:
+            # Base vicuna weights were frozen in apply_gated_lora, ensure all non-gated-lora params are frozen
+            for name, param in self.hybrid_vicuna.named_parameters():
+                if "gated_lora" not in name:
+                    param.requires_grad = False
         # Ensure encoder is frozen and projector is trainable.
         self._freeze_encoder()
         self.projector.requires_grad_(True)

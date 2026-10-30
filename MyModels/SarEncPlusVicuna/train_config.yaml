@@ -39,6 +39,7 @@ data:
   train_caption: false  # If true, loads captioning dataset (SARCaptioningDs); otherwise loads SARVLMDataset
   train_jsonl: "/home/saishruti/Research1/Shreyank_20_credit/DataGen/data/train_added.jsonl"
   val_jsonl: "/home/saishruti/Research1/Shreyank_20_credit/DataGen/data/test_added.jsonl"
+  #val_jsonl: "/home/saishruti/Research1/Shreyank_20_credit/DataGen/data/val_added.jsonl"
   data_root: "/home/saishruti/Research1/Shreyank_20_credit/DataGen/"
   train_jsonl_2: "/home/saishruti/Research1/Shreyank_20_credit/DataGen/sar_vqa/output/hrsid/data/train.jsonl"
   val_jsonl_2: "/home/saishruti/Research1/Shreyank_20_credit/DataGen/sar_vqa/output/hrsid/data/val.jsonl"
@@ -68,8 +69,8 @@ model:
   load_cpu: false  # If true, load Vicuna on CPU first then move to GPU (slower but uses less peak memory)
  
 lora:
-  is_lora: true
-  is_gated_lora: false
+  is_lora: false
+  is_gated_lora: true
   r: 16
   alpha: 32
   dropout: 0.05
@@ -96,8 +97,8 @@ training:
   learning_rate: 2.0e-5
   weight_decay: 0.0
   max_length: 512 # Max text sequence length
-  save_dir: "/home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/Full_Model_AR_MLP_Pretrained_Data_4OBJ/checkpoints/"
-  log_file: "/home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/Full_Model_AR_MLP_Pretrained_Data_4OBJ/training.log"
+  save_dir: "/home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/Full_Model_AR_MLP_Pretrained_Gated_Lora_Data_4OBJ/checkpoints/"
+  log_file: "/home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/Full_Model_AR_MLP_Pretrained_Gated_Lora_Data_4OBJ/training.log"
   # CKA (Centered Kernel Alignment) auxiliary loss, aligning the SAR
   # encoder's output with the LLM's penultimate-layer representation.
   # Off by default -- flip on deliberately, don't let a pull silently
