@@ -83,6 +83,23 @@ georope:
                    # top-level gsd_m) field -- missing it just means G=1
                    # (no calibration) for that sample.
 
+# Trainable modules inside the MaRS encoder (model/mars_adapters.py): LoRA on
+# each block's attention qkv/proj, and a gated GeoRoPE branch next to each
+# block's window attention. Both off by default (MaRS fully frozen). When on,
+# mars_adapters.pth is saved/loaded alongside projector.pth automatically, and
+# the benchmark refuses to run if the checkpoint and this section disagree.
+#   lora: true, georope: false -> "MaRS LoRA only" control
+#   lora: true, georope: true  -> "GeoRoPE in MaRS"
+# Check GPU memory first:  python train.py --config <cfg> --dry-run
+# Benchmark these runs with Benchmarking/run_benchmark.py only (val.py,
+# test_sample.py and run_benchmark_Ablation_3.py do not load mars_adapters.pth).
+mars:
+  lora: false
+  georope: false
+  stages: [0, 1, 2, 3]
+  lora_r: 16
+  lora_alpha: 32
+
 training:
   epochs: 3
   micro_batch_size: 4

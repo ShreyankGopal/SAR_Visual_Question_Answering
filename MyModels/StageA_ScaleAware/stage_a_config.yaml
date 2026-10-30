@@ -1,0 +1,52 @@
+# Stage A: scale-equivariant fine-tuning of MaRS's LoRA (see train_stage_a.py).
+# Paths below are for server 2 -- adjust if running elsewhere.
+
+datasets:   # train images = unique images in train_jsonl; val subset drawn from val_jsonl
+  - name: openearthmap
+    train_jsonl: "/home/shruti/SAR_VQA/data/oem/train_added.jsonl"
+    val_jsonl:   "/home/shruti/SAR_VQA/data/oem/val_added.jsonl"
+    data_root:   "/home/shruti/SAR_VQA/data/oem/"
+  - name: hrsid
+    train_jsonl: "/home/shruti/SAR_VQA/data/sar_vqa_output/hrsid/data/train.jsonl"
+    val_jsonl:   "/home/shruti/SAR_VQA/data/sar_vqa_output/hrsid/data/val.jsonl"
+    data_root:   "/home/shruti/SAR_VQA/data/HRSID/"
+  - name: ogsod
+    train_jsonl: "/home/shruti/SAR_VQA/data/sar_vqa_output/ogsod/data/train.jsonl"
+    val_jsonl:   "/home/shruti/SAR_VQA/data/sar_vqa_output/ogsod/data/val.jsonl"
+    data_root:   "/home/shruti/SAR_VQA/data/OGSOD/"
+  - name: sar_aircraft
+    train_jsonl: "/home/shruti/SAR_VQA/data/sar_vqa_output/sar_aircraft/data/train.jsonl"
+    val_jsonl:   "/home/shruti/SAR_VQA/data/sar_vqa_output/sar_aircraft/data/val.jsonl"
+    data_root:   "/home/shruti/SAR_VQA/data/sar_vqa_output/sar_aircraft/tiles/"
+  - name: sived
+    train_jsonl: "/home/shruti/SAR_VQA/data/sar_vqa_output/sived/data/train.jsonl"
+    val_jsonl:   "/home/shruti/SAR_VQA/data/sar_vqa_output/sived/data/val.jsonl"
+    data_root:   "/home/shruti/SAR_VQA/data/SIVED/"
+
+model:
+  encoder_checkpoint: "/home/shruti/SAR_VQA/logs/mars_base_sar_encoder_only.pth"
+
+lora:            # must match the mars: section of the stage B/C configs that load this LoRA
+  r: 16
+  alpha: 32
+  stages: [0, 1, 2, 3]
+
+views:
+  factors: [2, 4]          # coarser views (multilook factor); the original is always included
+
+loss:
+  temperature: 0.1
+  lambda_b: 0.5            # Term B ("which scale?") weight
+  lambda_preserve: 0.1     # keep 1x features close to frozen MaRS
+
+validation:
+  images_per_dataset: 300  # fixed random val subset per dataset, checked after every epoch
+
+training:
+  out_dir: "/home/shruti/SAR_VQA/SAR_Visual_Question_Answering/MyModels/StageA_ScaleAware/runs/stage_a_v1"
+  batch_size: 64           # images per step (x 3 views); fits on server 2, lower if out of memory
+  learning_rate: 1.0e-4    # 3% warm-up, then cosine decay
+  max_epochs: 10
+  patience: 2              # stop when TermB val acc hasn't improved for this many epochs
+  num_workers: 4
+  seed: 42

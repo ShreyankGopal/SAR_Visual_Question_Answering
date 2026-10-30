@@ -1,0 +1,62 @@
+# GeoRoPE in MaRS + MaRS LoRA + LLM-side GeoRoPE + CKA, OEM + 4 detection datasets (server 2)
+
+data:
+  train_jsonl: "/home/shruti/SAR_VQA/data/oem/train_added.jsonl"
+  val_jsonl: "/home/shruti/SAR_VQA/data/oem/test_added.jsonl"
+  data_root: "/home/shruti/SAR_VQA/data/oem/"
+  train_jsonl_2: "/home/shruti/SAR_VQA/data/sar_vqa_output/hrsid/data/train.jsonl"
+  val_jsonl_2: "/home/shruti/SAR_VQA/data/sar_vqa_output/hrsid/data/val.jsonl"
+  data_root_2: "/home/shruti/SAR_VQA/data/HRSID/"
+  train_jsonl_3: "/home/shruti/SAR_VQA/data/sar_vqa_output/ogsod/data/train.jsonl"
+  val_jsonl_3: "/home/shruti/SAR_VQA/data/sar_vqa_output/ogsod/data/val.jsonl"
+  data_root_3: "/home/shruti/SAR_VQA/data/OGSOD/"
+  train_jsonl_4: "/home/shruti/SAR_VQA/data/sar_vqa_output/sar_aircraft/data/train.jsonl"
+  val_jsonl_4: "/home/shruti/SAR_VQA/data/sar_vqa_output/sar_aircraft/data/val.jsonl"
+  data_root_4: "/home/shruti/SAR_VQA/data/sar_vqa_output/sar_aircraft/tiles/"
+  train_jsonl_5: "/home/shruti/SAR_VQA/data/sar_vqa_output/sived/data/train.jsonl"
+  val_jsonl_5: "/home/shruti/SAR_VQA/data/sar_vqa_output/sived/data/val.jsonl"
+  data_root_5: "/home/shruti/SAR_VQA/data/SIVED/"
+  train_sample_size: 50000   # every train source capped at this count
+  val_sample_size: null      # ignored -- val is never capped
+  sample_seed: 42
+
+model:
+  vicuna_path: "lmsys/vicuna-7b-v1.5"
+  encoder_checkpoint: "/home/shruti/SAR_VQA/logs/mars_base_sar_encoder_only.pth"
+  d_sar: 1024
+  n_visual: 256
+  load_cpu: false
+
+lora:
+  r: 16
+  alpha: 32
+  dropout: 0.05
+  target_modules: ["q_proj", "k_proj", "v_proj", "o_proj"]
+
+georope:
+  enable: true               # keep the LLM-side adapter (this row builds on "+ GeoRoPE")
+  bottleneck_dim: 256
+  num_heads: 4
+  gcc_alpha: 0.5
+  gfc_hidden_dim: 64
+  zero_init_output: false
+  ref_gsd_m: 0.1
+
+mars:
+  lora: true                 # LoRA on MaRS attention qkv + proj
+  georope: true              # GeoRoPE branches inside the MaRS blocks
+  stages: [0, 1, 2, 3]       # drop 0 (then 1) if the dry run runs out of memory
+  lora_r: 16
+  lora_alpha: 32
+
+training:
+  epochs: 3
+  micro_batch_size: 4        # keep >= 4: CKA is meaningless below that
+  gradient_accumulation_steps: 4
+  learning_rate: 2.0e-5
+  weight_decay: 0.0
+  max_length: 512
+  save_dir: "/home/shruti/SAR_VQA/SAR_Visual_Question_Answering/MyModels/SarEncPlusVicuna/GeoRoPE_MaRS_CKA_Data_4OBJ/checkpoints/"
+  log_file: "/home/shruti/SAR_VQA/SAR_Visual_Question_Answering/MyModels/SarEncPlusVicuna/GeoRoPE_MaRS_CKA_Data_4OBJ/training.log"
+  is_CKA: true
+  lambda_CKA: 0.01

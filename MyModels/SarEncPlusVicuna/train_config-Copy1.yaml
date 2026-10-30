@@ -36,6 +36,22 @@
 #Adding sardet100k
  
 data:
+##### ------- Shruti's Config ------- ######
+#   train_jsonl: "/home/shruti/SAR_VQA/data/train.jsonl"
+#   val_jsonl: "/home/shruti/SAR_VQA/data/test.jsonl"
+#   data_root: "/home/shruti/SAR_VQA/data/"
+#   dataset_name: "openearthmap"
+
+#   train_jsonl_2: "/home/shruti/SAR_VQA/data/sardet100k_train.jsonl"
+#   val_jsonl_2: "/home/shruti/SAR_VQA/data/sardet100k_test.jsonl"
+#   data_root_2: "/home/shruti/SAR_VQA/data/"
+#   dataset_name_2: "sardet100k"
+
+#   val_jsonl_3: "/home/shruti/SAR_VQA/data/val.jsonl"
+#   data_root_3: "/home/shruti/SAR_VQA/data/"
+#   dataset_name_3: "openearthmap"
+
+#   sample_seed: 42
   train_caption: false  # If true, loads captioning dataset (SARCaptioningDs); otherwise loads SARVLMDataset
   train_jsonl: "/home/saishruti/Research1/Shreyank_20_credit/DataGen/data/train_added.jsonl"
   val_jsonl: "/home/saishruti/Research1/Shreyank_20_credit/DataGen/data/test_added.jsonl"
@@ -97,6 +113,11 @@ training:
   learning_rate: 2.0e-5
   weight_decay: 0.0
   max_length: 512 # Max text sequence length
+#   save_dir: "/home/shruti/SAR_VQA/SAR_Visual_Question_Answering/MyModels/SarEncPlusVicuna/checkpoints/benchmarks_sardet100k"
+  checkpoint_path: ""
+#   checkpoint_every: 50
+#   log_file: "/home/shruti/SAR_VQA/models/training_sardet100k.log"
+ 
   save_dir: "/home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/Full_Model_AR_MLP_Pretrained_Gated_Lora_Data_4OBJ/checkpoints/"
   log_file: "/home/saishruti/Research1/Shreyank_20_credit/MyModels/SarEncPlusVicuna/Full_Model_AR_MLP_Pretrained_Gated_Lora_Data_4OBJ/training.log"
   # CKA (Centered Kernel Alignment) auxiliary loss, aligning the SAR

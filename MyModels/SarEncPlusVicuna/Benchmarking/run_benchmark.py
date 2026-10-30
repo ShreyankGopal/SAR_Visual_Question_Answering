@@ -72,6 +72,7 @@ REPO_DIR = SCRIPT_DIR.parent
 sys.path.insert(0, str(REPO_DIR))
 
 from model.sar_vlm import SARVLM, build_sar_encoder
+from model.mars_adapters import install_mars_adapters, load_mars_adapters
 from dataset import SARVLMDataset, collate_fn
 
 
@@ -191,6 +192,15 @@ def load_checkpoint_weights(vlm, checkpoint_path: str, device) -> None:
                 f"GeoRoPE, set georope.enable: false in the config."
             )
         vlm.georope_adapter.load_state_dict(torch.load(georope_path, map_location=device))
+    # In-MaRS adapters: no-op if none are configured and none were saved;
+    # raises if the checkpoint and the `mars:` config disagree.
+    load_mars_adapters(vlm.sar_encoder, os.path.join(checkpoint_path, "mars_adapters.pth"), device)
+
+    # A diverged run saves NaN weights, which generate empty answers (all metrics 0).
+    bad = [n for n, p in vlm.named_parameters() if not torch.isfinite(p).all()]
+    if bad:
+        raise RuntimeError(f"{checkpoint_path} has {len(bad)} NaN/inf weight tensors "
+                           f"(e.g. {bad[:3]}); the training run diverged -- use an earlier checkpoint.")
 
 
 def checkpoint_is_healthy(vlm, checkpoint_path: str, health_batch: dict, device) -> bool:
@@ -348,6 +358,8 @@ def load_model(config: dict, checkpoint_path: str = None):
         freeze=True,
         d_sar=c_model["d_sar"],
     )
+    # Same in-MaRS LoRA / GeoRoPE branches the run was trained with (`mars:` config).
+    install_mars_adapters(sar_encoder, **(config.get("mars") or {}))
 
     # Clear cache after SAR encoder
     if torch.cuda.is_available():
@@ -670,6 +682,8 @@ def parse_args():
     p.add_argument("--batch_size", type=int, default=8,
                    help="Samples generated together per batch")
     p.add_argument("--max_new_tokens", type=int, default=64)
+    p.add_argument("--split", choices=["val", "test", "both"], default="both",
+                   help="Which split(s) of each dataset to evaluate (default: both, combined)")
     return p.parse_args()
 
 
@@ -684,7 +698,8 @@ def main():
             nltk.download(res.split("/")[-1], quiet=True)
 
     log("=" * 60)
-    log("SAR-VLM Benchmark Runner (val + test)")
+    split_desc = "val + test" if args.split == "both" else args.split
+    log(f"SAR-VLM Benchmark Runner ({split_desc})")
     log("=" * 60)
 
     os.chdir(REPO_DIR)
@@ -708,12 +723,18 @@ def main():
     eval_datasets = discover_eval_datasets(c_data)
     if not eval_datasets:
         raise ValueError("No val_jsonl / test_jsonl found in config['data']")
+    if args.split != "both":
+        for ds in eval_datasets:
+            ds["files"] = [(p, s) for p, s in ds["files"] if s == args.split]
+            if not ds["files"]:
+                log(f"WARNING: no {args.split} file found for '{ds['name']}' -- skipping it")
+        eval_datasets = [ds for ds in eval_datasets if ds["files"]]
     log(f"\nFound {len(eval_datasets)} dataset(s):")
     for ds in eval_datasets:
         log(f"  {ds['name']}:")
         for path, split in ds["files"]:
             log(f"    [{split}] {path}")
-        if len(ds["files"]) < 2:
+        if args.split == "both" and len(ds["files"]) < 2:
             log(f"    WARNING: only one split found for '{ds['name']}'")
 
     all_results = []
@@ -725,7 +746,7 @@ def main():
             tokenizer=tokenizer,
             max_length=c_train["max_length"],
         )
-        log(f"\n'{ds['name']}': {len(dataset)} samples (val + test)")
+        log(f"\n'{ds['name']}': {len(dataset)} samples ({split_desc})")
 
         if args.category:
             dataset.records = [r for r in dataset.records if r[0].get("category") == args.category]
@@ -773,7 +794,7 @@ def main():
     if not all_results:
         log("No samples evaluated.")
         return
-    save_results(all_results, out_dir, tag, f"VAL + TEST, checkpoint step {global_step}")
+    save_results(all_results, out_dir, tag, f"{split_desc.upper()}, checkpoint step {global_step}")
     log("\nAll done!")
 
 

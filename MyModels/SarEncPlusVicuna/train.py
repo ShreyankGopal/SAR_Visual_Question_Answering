@@ -30,6 +30,7 @@ Resuming:
 """
 
 import argparse
+import csv
 import functools
 import gc
 import os
@@ -43,6 +44,7 @@ from transformers import AutoTokenizer
 from tqdm import tqdm
 
 from model.sar_vlm import SARVLM, build_sar_encoder
+from model.mars_adapters import install_mars_adapters, load_mars_adapters, save_mars_adapters
 from model.LoraGatingGSD import save_gated_lora
 from dataset import SARVLMDataset, SARCaptioningDs, collate_fn, count_jsonl_records
 from Loss_functions.Centered_Kernel_Allign import RBFCKALoss
@@ -59,6 +61,24 @@ def log(msg: str, log_file: str = None):
     if log_file:
         with open(log_file, "a") as f:
             f.write(out + "\n")
+
+
+LOSS_CSV_FIELDS = ["epoch", "global_step", "split", "answer_loss", "cka_loss", "cka_value", "total_loss"]
+
+
+def append_loss_row(path, row):
+    """
+    Append one row to the losses CSV (header written when the file is new).
+    Columns: answer_loss = the model's loss on answer tokens; cka_loss /
+    cka_value = the CKA term (blank when CKA is off or skipped); total_loss =
+    the value the training log prints for that step.
+    """
+    is_new = not os.path.exists(path)
+    with open(path, "a", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=LOSS_CSV_FIELDS)
+        if is_new:
+            writer.writeheader()
+        writer.writerow(row)
 
 
 def find_latest_checkpoint(save_dir):
@@ -90,6 +110,15 @@ def save_checkpoint(vlm, optimizer, scaler, save_dir, global_step, epoch, log_fi
     This is used when training only the MLP projector with frozen encoder
     and no LoRA on Vicuna.
     """
+    # Never save (or prune good checkpoints for) a model whose weights went NaN/inf.
+    # SystemExit, not an Exception: the training loop catches Exceptions around
+    # save_checkpoint and would otherwise just keep training a broken model.
+    bad = [n for n, p in vlm.named_parameters() if p.requires_grad and not torch.isfinite(p).all()]
+    if bad:
+        log(f"STOPPING at step {global_step}: {len(bad)} trainable tensors are NaN/inf "
+            f"(e.g. {bad[:3]}). Not saving. Resume from the last checkpoint in {save_dir}.", log_file)
+        raise SystemExit(1)
+
     checkpoint_dir = os.path.join(save_dir, f"step_{global_step}")
     os.makedirs(checkpoint_dir, exist_ok=True)
 
@@ -117,6 +146,8 @@ def save_checkpoint(vlm, optimizer, scaler, save_dir, global_step, epoch, log_fi
             vlm.georope_adapter.state_dict(),
             os.path.join(checkpoint_dir, "georope_adapter.pth"),
         )
+    # In-MaRS LoRA / GeoRoPE branches (no-op when none are installed).
+    save_mars_adapters(vlm.sar_encoder, os.path.join(checkpoint_dir, "mars_adapters.pth"))
     torch.save(
         {
             "global_step": global_step,
@@ -197,6 +228,10 @@ def load_model_weights(vlm, checkpoint_path, device, log_file=None, only_mlp=Fal
                 log_file,
             )
 
+    # In-MaRS adapters: no-op if none are configured and none were saved;
+    # raises if the checkpoint and the `mars:` config disagree.
+    load_mars_adapters(vlm.sar_encoder, os.path.join(checkpoint_path, "mars_adapters.pth"), device)
+
 
 def load_training_state(optimizer, scaler, checkpoint_path, log_file=None):
     """
@@ -264,6 +299,14 @@ def parse_args():
         "--checkpoint-path", "--checkpoint_path", "--resume", type=str, default=None,
         help=(
             "Explicit path to a step checkpoint directory (e.g. step_11940) to resume training from."
+        ),
+    )
+    parser.add_argument(
+        "--dry-run", action="store_true",
+        help=(
+            "Run 5 training steps from scratch, log the peak GPU memory, and exit "
+            "without saving a checkpoint. Use it to check that a config fits on "
+            "the GPU at the chosen micro_batch_size before a real launch."
         ),
     )
     return parser.parse_args()
@@ -468,7 +511,9 @@ def main():
     c_lora = config["lora"]
     c_train = config["training"]
     c_georope = config.get("georope", {})
+    
     only_mlp = c_train.get("only_mlp", False)
+    c_mars = config.get("mars") or {}
 
     os.makedirs(c_train["save_dir"], exist_ok=True)
     shutil.copy(args.config, os.path.join(c_train["save_dir"], os.path.basename(args.config)))
@@ -503,6 +548,8 @@ def main():
         freeze=True,
         d_sar=c_model["d_sar"],
     )
+    # In-MaRS LoRA / GeoRoPE branches; a no-op unless enabled under `mars:`.
+    install_mars_adapters(sar_encoder, **c_mars)
 
     log("SAR encoder loaded", c_train["log_file"])
 
@@ -557,7 +604,7 @@ def main():
     # Explicit --checkpoint-path CLI argument or training.checkpoint_path in config wins;
     # otherwise auto-pick the latest step_N checkpoint under training.save_dir.
     resume_path = None
-    if not args.no_resume:
+    if not args.no_resume and not args.dry_run:
         resume_path = args.checkpoint_path or c_train.get("checkpoint_path") or find_latest_checkpoint(c_train["save_dir"])
 
     # ---------------------------------------------------------
@@ -696,6 +743,10 @@ def main():
     # ---------------------------------------------------------
     grad_acc_steps = c_train["gradient_accumulation_steps"]
     CHECKPOINT_EVERY = c_train.get("checkpoint_every", 20)
+    # ponytail: append-only; after a resume, steps since the last checkpoint
+    # appear twice (same global_step) -- keep the last occurrence when plotting.
+    loss_csv = os.path.join(c_train["save_dir"], "losses.csv")
+    log(f"Logging losses to {loss_csv}", c_train["log_file"])
     NUM_SAMPLES = 2
 
     # ---------------------------------------------------------
@@ -755,6 +806,7 @@ def main():
                 loss = outputs.loss / grad_acc_steps
 
             cka_loss = torch.tensor(0.0, device=device, dtype=loss.dtype)
+            cka_value = None
             # CKA needs >= 2 samples; a short final batch can have just 1.
             if (is_CKA and cka_loss_fn is not None and intermediate_outputs
                     and intermediate_outputs['encoder_output'].shape[0] >= 2):
@@ -786,7 +838,30 @@ def main():
             num_train_batches += 1
             global_step += 1
 
+            if not args.dry_run:
+                append_loss_row(loss_csv, {
+                    "epoch": epoch,
+                    "global_step": global_step,
+                    "split": "train",
+                    "answer_loss": outputs.loss.item(),
+                    "cka_loss": cka_loss.item() if cka_value is not None else "",
+                    "cka_value": cka_value.item() if cka_value is not None else "",
+                    "total_loss": loss_val,
+                })
+
             pbar.set_postfix({"loss": f"{loss_val:.4f}", "step": global_step})
+
+            if args.dry_run and global_step >= 5:
+                if torch.cuda.is_available():
+                    log(
+                        f"DRY RUN: 5 steps OK at micro_batch_size={c_train['micro_batch_size']}. "
+                        f"Peak GPU memory: {torch.cuda.max_memory_allocated() / 2**30:.1f} GB allocated, "
+                        f"{torch.cuda.max_memory_reserved() / 2**30:.1f} GB reserved.",
+                        c_train["log_file"],
+                    )
+                else:
+                    log("DRY RUN: 5 steps OK (no GPU, so no memory figure).", c_train["log_file"])
+                return
 
             # Periodic cache clearing during training
             if global_step % 100 == 0 and torch.cuda.is_available():
@@ -815,6 +890,10 @@ def main():
 
         avg_train_loss = total_train_loss / max(num_train_batches, 1)
         log(f"Epoch {epoch} | Train Loss: {avg_train_loss:.4f}", c_train["log_file"])
+        append_loss_row(loss_csv, {
+            "epoch": epoch, "global_step": global_step, "split": "train_epoch_avg",
+            "answer_loss": "", "cka_loss": "", "cka_value": "", "total_loss": avg_train_loss,
+        })
 
         # End-of-epoch checkpoint. epoch=epoch+1: this epoch is fully done,
         # so resuming should move on to the next one.
@@ -836,11 +915,15 @@ def main():
     log("========== FINAL EVALUATION (all epochs complete) ==========", c_train["log_file"])
 
     try:
-        run_validation(
+        val_loss = run_validation(
             vlm=vlm, val_loader=val_loader, device=device, log_file=c_train["log_file"],
             intermediate_outputs=intermediate_outputs, cka_loss_fn=cka_loss_fn,
             is_CKA=is_CKA, lambda_CKA=lambda_CKA,
         )
+        append_loss_row(loss_csv, {
+            "epoch": c_train["epochs"], "global_step": global_step, "split": "val",
+            "answer_loss": val_loss, "cka_loss": "", "cka_value": "", "total_loss": "",
+        })
     except Exception as e:
         log(f"FINAL VALIDATION FAILED: {type(e).__name__}: {e}", c_train["log_file"])
 

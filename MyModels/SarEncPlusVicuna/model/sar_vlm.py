@@ -43,8 +43,7 @@ from .sar_projector import SARProjector
 from .sar_ablation_projector import SARAblationProjector
 from .georope_adapter import GeoRoPEVisualAdapter
 from .LoraGatingGSD import apply_gated_lora
-
-
+from .mars_adapters import mars_adapter_params
 # SAR Encoder — placeholder and real-encoder factory
 
 
@@ -162,14 +161,20 @@ class _SAREncoderWrapper(nn.Module):
     def __init__(self, backbone: nn.Module):
         super().__init__()
         self.backbone = backbone
+        # Set by install_mars_adapters() (model/mars_adapters.py) when in-MaRS
+        # modules are installed; carries the batch's gsd_ratio to the blocks.
+        self.mars_ctx = None
 
-    def forward(self, sar_input: torch.Tensor) -> torch.Tensor:
+    def forward(self, sar_input: torch.Tensor, gsd_ratio: Optional[torch.Tensor] = None) -> torch.Tensor:
         """
         Args:
             sar_input: [B, 1, 512, 512]
+            gsd_ratio: [B] optional, only used by in-MaRS GeoRoPE branches.
         Returns:
             [B, H*W, d_sar]  where H=W=16 for 512px SwinV2-Base → [B, 256, 1024]
         """
+        if self.mars_ctx is not None:
+            self.mars_ctx.gsd_ratio = gsd_ratio
         feature_maps = self.backbone(sar_input)  # list [f0, f1, f2, f3]
         f3 = feature_maps[-1]                    # timm swinv2 returns [B, H, W, C]
         B, H, W, C = f3.shape
@@ -470,9 +475,22 @@ class SARVLM(nn.Module):
     # ------------------------------------------------------------------
 
     def _freeze_encoder(self):
-        """Freeze all SAR encoder parameters."""
+        """
+        Freeze all original SAR encoder parameters. In-MaRS adapter parameters
+        (LoRA / GeoRoPE branches from model/mars_adapters.py), if installed,
+        stay trainable -- unless they were loaded frozen from stage A
+        (mars.stage_a_checkpoint), in which case MaRS stays fully frozen.
+        """
         for param in self.sar_encoder.parameters():
             param.requires_grad_(False)
+        if getattr(self.sar_encoder, "mars_frozen", False):
+            self._mars_trainable = False
+            return
+        mars_params = mars_adapter_params(self.sar_encoder)
+        for param in mars_params.values():
+            param.requires_grad_(True)
+        # When True, _encode_sar runs the encoder with gradients.
+        self._mars_trainable = bool(mars_params)
 
     def _print_trainable_params(self):
         """Print a summary of trainable vs frozen parameters."""
@@ -503,7 +521,7 @@ class SARVLM(nn.Module):
         visual_attn = torch.ones(B, N_v, dtype=attention_mask.dtype, device=attention_mask.device)
         return torch.cat([visual_attn, attention_mask], dim=1)
 
-    def _encode_sar(self, sar_input: torch.Tensor) -> torch.Tensor:
+    def _encode_sar(self, sar_input: torch.Tensor, gsd_ratio: Optional[torch.Tensor] = None) -> torch.Tensor:
         """
         Run the SAR encoder (frozen) and return [B, N_visual, d_sar].
 
@@ -513,7 +531,15 @@ class SARVLM(nn.Module):
         We use torch.no_grad() inside here because the encoder is frozen —
         no gradient should flow into it, and skipping autograd for the encoder
         avoids storing unnecessary intermediate activations.
+
+        Exception: when in-MaRS adapters are installed (model/mars_adapters.py)
+        the encoder holds trainable parameters, so it runs with gradients and
+        receives gsd_ratio for its GeoRoPE branches.
         """
+        if self._mars_trainable:
+            features = self.sar_encoder(sar_input, gsd_ratio=gsd_ratio)
+            return features.to(self.projector.proj[0].weight.dtype)
+
         with torch.no_grad():
             features = self.sar_encoder(sar_input)  # [B, N_visual, d_sar]
         # Detach so the projector's gradient graph starts at sar_features.
@@ -556,7 +582,7 @@ class SARVLM(nn.Module):
         B = sar_input.shape[0]
 
         # 1. SAR encoder (frozen) → projector (trainable) → GeoRoPE adapter
-        sar_features = self._encode_sar(sar_input)         # [B, N_v, d_sar]
+        sar_features = self._encode_sar(sar_input, gsd_ratio)  # [B, N_v, d_sar]
         sar_tokens = self.projector(sar_features)           # [B, N_v, H]
         if self.georope_adapter is not None:
             sar_tokens = self.georope_adapter(sar_tokens, gsd_ratio=gsd_ratio)
@@ -635,7 +661,7 @@ class SARVLM(nn.Module):
 
         # Compute visual tokens (frozen encoder + trainable projector + adapter)
         with torch.no_grad():
-            sar_features = self._encode_sar(sar_input)
+            sar_features = self._encode_sar(sar_input, gsd_ratio)
             sar_tokens = self.projector(sar_features)
             if self.georope_adapter is not None:
                 sar_tokens = self.georope_adapter(sar_tokens, gsd_ratio=gsd_ratio)
