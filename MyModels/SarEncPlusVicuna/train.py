@@ -45,6 +45,7 @@ from tqdm import tqdm
 
 from model.sar_vlm import SARVLM, build_sar_encoder
 from model.mars_adapters import install_mars_adapters, load_mars_adapters, save_mars_adapters
+from model.LoraGatingGSD import save_gated_lora
 from dataset import SARVLMDataset, SARCaptioningDs, collate_fn, count_jsonl_records
 from Loss_functions.Centered_Kernel_Allign import RBFCKALoss
 
@@ -126,7 +127,18 @@ def save_checkpoint(vlm, optimizer, scaler, save_dir, global_step, epoch, log_fi
     if only_mlp:
         log("only_mlp=True: saving only projector weights", log_file)
     else:
-        vlm.hybrid_vicuna.save_pretrained(checkpoint_dir)
+        # Check if Gated LoRA is activated
+        if hasattr(vlm, 'gated_lora_mods') and vlm.gated_lora_mods:
+            log("Gated LoRA activated: saving Gated LoRA adapters", log_file)
+            try:
+                save_gated_lora(vlm, checkpoint_dir, base_model_name="lmsys/vicuna-7b-v1.5")
+                log("Gated LoRA adapters saved successfully", log_file)
+            except Exception as e:
+                log(f"ERROR saving Gated LoRA adapters: {e}", log_file)
+                raise
+        else:
+            # Save standard PEFT LoRA adapters
+            vlm.hybrid_vicuna.save_pretrained(checkpoint_dir)
 
     torch.save(vlm.projector.state_dict(), os.path.join(checkpoint_dir, "projector.pth"))
     if vlm.georope_adapter is not None:
@@ -173,14 +185,22 @@ def load_model_weights(vlm, checkpoint_path, device, log_file=None, only_mlp=Fal
 
     # Only load LoRA adapter if only_mlp is False (i.e., LoRA was saved)
     if not only_mlp:
-        # "default" is PEFT's default adapter name -- matches what
-        # save_checkpoint()'s save_pretrained() saves under.
         # Check if adapter_config.json exists (indicates LoRA was saved)
         adapter_config_path = os.path.join(checkpoint_path, "adapter_config.json")
         if os.path.exists(adapter_config_path):
-            vlm.hybrid_vicuna.load_adapter(checkpoint_path, adapter_name="default", is_trainable=True)
-            vlm.hybrid_vicuna.set_adapter("default")
-            log("LoRA adapter loaded", log_file)
+            # Check if it's Gated LoRA (has custom_method field)
+            import json
+            with open(adapter_config_path, 'r') as f:
+                adapter_config = json.load(f)
+
+            if adapter_config.get("custom_method") == "GatedLoRA":
+                log("Gated LoRA adapter found - loading logic not implemented yet, skipping", log_file)
+                log("NOTE: Gated LoRA loading will be implemented separately", log_file)
+            else:
+                # Standard PEFT LoRA
+                vlm.hybrid_vicuna.load_adapter(checkpoint_path, adapter_name="default", is_trainable=True)
+                vlm.hybrid_vicuna.set_adapter("default")
+                log("Standard PEFT LoRA adapter loaded", log_file)
         else:
             log("No LoRA adapter found in checkpoint (only_mlp mode or no LoRA saved)", log_file)
     else:
