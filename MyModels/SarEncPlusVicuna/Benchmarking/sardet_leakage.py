@@ -11,7 +11,8 @@ Images are matched by content instead:
   python sardet_leakage.py \
       --sardet "~/SAR_VQA/data/SARDET_100k/SARDet_100K/JPEGImages/test/*" \
       --train ~/SAR_VQA/data/*/train_added.jsonl --val ~/SAR_VQA/data/*/val_added.jsonl \
-      --test ~/SAR_VQA/data/*/test_added.jsonl --out sardet_test_leakage.csv
+      --test ~/SAR_VQA/data/*/test_added.jsonl --roots /path/to/HRSID /path/to/OGSOD ... \
+      --out sardet_test_leakage.csv
 
 Output CSV: one row per SARDet test image -> found_in (train/val/test/none), method,
 similarity, our_path. Crops are NOT detected (a 512 crop of an 800 image looks different);
@@ -70,16 +71,18 @@ def describe(paths):
     return md5, (np.stack(thumbs) if thumbs else np.zeros((0, T * T), np.float32)), sizes, ok
 
 
-def images_in(jsonls):
+def images_in(jsonls, roots=()):
+    """Image paths in the JSONLs, resolved against the JSONL folder or any --roots (config data_root)."""
     out = set()
     for j in jsonls:
-        base = os.path.dirname(j)
+        bases = [os.path.dirname(j)] + [os.path.expanduser(r) for r in roots]
         for line in open(j):
             for p in IMG_RE.findall(line):
                 p = os.path.expanduser(p)
-                p = p if os.path.isabs(p) else os.path.join(base, p)
-                if os.path.exists(p):
-                    out.add(p)
+                for c in ([p] if os.path.isabs(p) else [os.path.join(b, p) for b in bases]):
+                    if os.path.exists(c):
+                        out.add(c)
+                        break
     return sorted(out)
 
 
@@ -89,13 +92,14 @@ def main():
     ap.add_argument("--train", nargs="+", required=True, help="our train JSONL files")
     ap.add_argument("--val", nargs="*", default=[])
     ap.add_argument("--test", nargs="*", default=[])
+    ap.add_argument("--roots", nargs="*", default=[], help="data_root folders from the training config")
     ap.add_argument("--thr", type=float, default=0.98, help="thumbnail cosine for 'same image'")
     ap.add_argument("--out", default="sardet_test_leakage.csv")
     args = ap.parse_args()
 
     ours = {}
     for split in ("train", "val", "test"):
-        files = images_in(getattr(args, split))
+        files = images_in(getattr(args, split), args.roots)
         print(f"our {split}: {len(files)} images")
         ours[split] = describe(files)
     sd_files = sorted(glob.glob(os.path.expanduser(args.sardet)))
