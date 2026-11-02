@@ -46,8 +46,7 @@ def index_images(data: str) -> dict:
 def leaked_names(data: str) -> set:
     sl = os.path.join(data, "SARLANG-1M")
     out = set()
-    csv_path = os.path.join(sl, "sardet_test_leakage.csv")
-    if os.path.exists(csv_path):
+    for csv_path in glob.glob(os.path.join(sl, "sardet_*_leakage.csv")):   # one per SARDet folder checked
         out |= {os.path.splitext(r["sardet_file"])[0] for r in csv.DictReader(open(csv_path))
                 if r["found_in"] == "train"}
     txt = os.path.join(sl, "oem_test_in_our_train.txt")
