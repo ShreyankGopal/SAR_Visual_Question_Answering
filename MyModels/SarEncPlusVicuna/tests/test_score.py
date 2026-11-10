@@ -25,7 +25,8 @@ def _row(i, dataset, split, gt, pred, correct):
 
 def _make(tmp_path, name, n_correct, n=200):
     # 'DataGen' must be treated as openearthmap; half single-word GTs; plus test rows to be filtered out
-    rows = [_row(i, "DataGen", "val", "yes" if i % 2 else "two words", "x", i < n_correct) for i in range(n)]
+    gt = lambda i: "yes" if i % 2 else "two words"
+    rows = [_row(i, "DataGen", "val", gt(i), gt(i) if i < n_correct else "x", i < n_correct) for i in range(n)]
     rows += [_row(i, "DataGen", "test", "yes", "yes", True) for i in range(1000, 1050)]
     rows.append({**_row(9999, "DataGen", "val", "yes", "", False), "error": "boom", "exact_match": None})
     path = str(tmp_path / f"{name}.jsonl")
@@ -44,6 +45,16 @@ def test_split_alias_and_metrics(tmp_path):
     assert s["em_lo"] < 0.25 < s["em_hi"]
     # single-word GTs are the odd i; correct ones are i < 50 -> 25 of 100
     assert abs(s["em_1w"] - 0.25) < 1e-9
+
+
+def test_lenient_vs_strict(tmp_path):
+    assert score.normalise("a Tank.") == score.normalise("tank") == "tank"
+    assert score.normalise("Two harbours") == "2 harbors"
+    assert score.normalise("a Tank.", lenient=False) == "a tank"
+    rows = [_row(0, "DataGen", "val", "a ship", "Ship.", False), _row(1, "DataGen", "val", "two", "2", False)]
+    p = str(tmp_path / "l.jsonl"); _write(p, rows)
+    assert [r["em"] for r in score.load_rows(p, "val")[0]["openearthmap"]] == [1.0, 1.0]
+    assert [r["em"] for r in score.load_rows(p, "val", strict=True)[0]["openearthmap"]] == [0.0, 0.0]
 
 
 def test_paired_difference_detects_real_gain(tmp_path):

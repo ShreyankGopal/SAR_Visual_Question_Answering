@@ -105,6 +105,7 @@ mars:
   # install_mars_adapters() in model/mars_adapters.py; add a key here to override one.
 
 training:
+  seed: 42          # global seed (init of new layers, dropout, shuffling); same for every row
   epochs: 3
   # Effective batch size = micro_batch_size * gradient_accumulation_steps
   # 4 * 4 = 16

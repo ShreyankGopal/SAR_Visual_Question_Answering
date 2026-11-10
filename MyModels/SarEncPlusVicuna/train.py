@@ -34,10 +34,12 @@ import csv
 import functools
 import gc
 import os
+import random
 import re
 import shutil
 import time
 import yaml
+import numpy as np
 import torch
 from torch.utils.data import DataLoader
 from transformers import AutoTokenizer
@@ -515,8 +517,18 @@ def main():
     only_mlp = c_train.get("only_mlp", False)
     c_mars = config.get("mars") or {}
 
+    # One global seed (training.seed, default 42): weight init of new layers, dropout,
+    # data shuffling. Data subsampling keeps its own data.sample_seed.
+    seed = c_train.get("seed", 42)
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+
     os.makedirs(c_train["save_dir"], exist_ok=True)
-    shutil.copy(args.config, os.path.join(c_train["save_dir"], os.path.basename(args.config)))
+    config_copy = os.path.join(c_train["save_dir"], os.path.basename(args.config))
+    if os.path.abspath(args.config) != os.path.abspath(config_copy):   # resuming from the saved copy itself
+        shutil.copy(args.config, config_copy)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     log(f"Starting training on device: {device}", c_train["log_file"])

@@ -8,7 +8,8 @@ and adds 95% bootstrap confidence intervals. CPU only; no model needed (the
 per-question metrics are already in each row).
 
 Per dataset, and overall (micro = all questions pooled, macro = mean over datasets):
-    EM        exact match over ALL questions
+    EM        exact match over ALL questions; lenient by default ("a Tank." == "tank",
+              "two" == "2", harbour == harbor), --strict for run_benchmark.py's own EM
     EM-1w     exact match over single-word ground truths only (older tables' EM)
     B-1, B-4  BLEU, R-L  ROUGE-L,  mIoU / Acc@0.5 for box answers
 
@@ -35,13 +36,27 @@ METRICS = ["em", "em_1w", "bleu1", "bleu4", "rougeL"]           # bootstrap / pa
 CI_METRICS = ["em", "em_1w", "rougeL"]
 
 
-def normalise(text: str) -> str:
-    """Same normalisation as run_benchmark.py (lowercase, strip punctuation)."""
-    return " ".join(re.sub(r"[^\w\s]", "", text.lower()).split())
+NUMBERS = {w: str(i) for i, w in enumerate(
+    "zero one two three four five six seven eight nine ten eleven twelve thirteen fourteen "
+    "fifteen sixteen seventeen eighteen nineteen twenty".split())}
+SPELLING = {"harbour": "harbor", "harbours": "harbors", "centre": "center", "centred": "centered",
+            "metre": "meter", "metres": "meters", "colour": "color", "grey": "gray"}
+ARTICLES = {"a", "an", "the"}
 
 
-def load_rows(path: str, split: str) -> tuple:
-    """Rows of one predictions file -> ({dataset: [row, ...]}, n_errors)."""
+def normalise(text: str, lenient: bool = True) -> str:
+    """Lowercase, strip punctuation. Lenient (default) also drops a/an/the, maps number
+    words to digits and British to American spelling, so "a Tank." == "tank", "two" == "2".
+    lenient=False is run_benchmark.py's strict matching (older tables)."""
+    words = re.sub(r"[^\w\s]", "", text.lower()).split()
+    if lenient:
+        words = [SPELLING.get(w, NUMBERS.get(w, w)) for w in words if w not in ARTICLES]
+    return " ".join(words)
+
+
+def load_rows(path: str, split: str, strict: bool = False) -> tuple:
+    """Rows of one predictions file -> ({dataset: [row, ...]}, n_errors).
+    EM is recomputed with the lenient normalise() unless strict (then the file's own EM)."""
     by_ds, errors = defaultdict(list), 0
     with open(path) as f:
         for line in f:
@@ -55,9 +70,11 @@ def load_rows(path: str, split: str) -> tuple:
                 continue
             ds = ALIASES.get(r["dataset"], r["dataset"])
             single = len(normalise(r["ground_truth"]).split()) == 1
+            em = r["exact_match"] if strict else \
+                float(normalise(r["ground_truth"]) == normalise(r.get("prediction", "")))
             by_ds[ds].append({
                 "key": (ds, r["id"], r["question"]),
-                "em": r["exact_match"], "em_1w": r["exact_match"] if single else None,
+                "em": em, "em_1w": em if single else None,
                 "bleu1": r["bleu1"], "bleu4": r["bleu4"], "rougeL": r["rougeL"], "iou": r.get("iou"),
             })
     return by_ds, errors
@@ -123,13 +140,15 @@ def main():
     ap.add_argument("--boot", type=int, default=1000, help="bootstrap resamples (default 1000)")
     ap.add_argument("--csv", help="write all numbers to this CSV")
     ap.add_argument("--latex", action="store_true", help="print R-L & EM per dataset as LaTeX table rows")
+    ap.add_argument("--strict", action="store_true",
+                    help="old strict EM (as run_benchmark.py; 'a tank' != 'Tank.') instead of lenient")
     args = ap.parse_args()
 
     rng = np.random.default_rng(0)
     runs = []
     for spec in args.runs:
         label, _, path = spec.partition("=") if "=" in spec else (spec, "", spec)
-        by_ds, errors = load_rows(path, args.split)
+        by_ds, errors = load_rows(path, args.split, args.strict)
         if not by_ds:
             sys.exit(f"{label}: no rows for split '{args.split}' in {path}")
         runs.append((label, by_ds, errors))
@@ -138,7 +157,8 @@ def main():
     datasets += sorted({d for r in runs for d in r[1]} - set(datasets))
     csv_rows = []
 
-    print(f"Split: {args.split}   (all numbers in %, 95% bootstrap CI in brackets, {args.boot} resamples)\n")
+    print(f"Split: {args.split}   EM: {'strict' if args.strict else 'lenient (no a/an/the, number words, US spelling)'}"
+          f"   (all numbers in %, 95% bootstrap CI in brackets, {args.boot} resamples)\n")
     for label, by_ds, errors in runs:
         print(f"=== {label}" + (f"   ({errors} errored rows skipped)" if errors else ""))
         per_ds = {}
