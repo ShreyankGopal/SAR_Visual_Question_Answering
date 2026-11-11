@@ -154,6 +154,7 @@ def main():
     results = {}
     for name in ("plain_MaRS", "SE-MaRS"):
         if name == "SE-MaRS":
+            enc = enc.cpu()                       # LoRA weights are created on CPU
             install_mars_adapters(enc, **(cfg.get("mars") or {}))
             enc = enc.to(device).eval()
         print(f"== {name}")
