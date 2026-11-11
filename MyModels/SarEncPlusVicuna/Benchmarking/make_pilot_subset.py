@@ -61,13 +61,37 @@ def load(path: str, root: str) -> list:
     return recs
 
 
-def pick(recs: list, n: int, rng: random.Random) -> list:
-    """Up to n records, one per image, round-robin over categories."""
+def answer_key(r: dict) -> str:
+    """Answer bucket for balancing: lower-case text; counts of 4 or more share one bucket."""
+    a = r["conversations"][-1]["value"].strip().lower().rstrip(".")
+    return "4+" if a.isdigit() and int(a) >= 4 else a
+
+
+def interleave_answers(v: list, rng: random.Random) -> list:
+    """Order a category's records so answers come round-robin (pick() pops from the end)."""
+    by_ans = collections.defaultdict(list)
+    for r in v:
+        by_ans[answer_key(r)].append(r)
+    buckets = list(by_ans.values())
+    for b in buckets:
+        rng.shuffle(b)
+    rng.shuffle(buckets)
+    out = []
+    while buckets:
+        out += [b.pop() for b in buckets]
+        buckets = [b for b in buckets if b]
+    return out[::-1]
+
+
+def pick(recs: list, n: int, rng: random.Random, balance_answers: bool = False) -> list:
+    """Up to n records, one per image, round-robin over categories (and over answers within one)."""
     by_cat = collections.defaultdict(list)
     for r in recs:
         by_cat[r.get("category", "?")].append(r)
-    for v in by_cat.values():
+    for k, v in by_cat.items():
         rng.shuffle(v)
+        if balance_answers:
+            by_cat[k] = interleave_answers(v, rng)
     queues, used, out = list(by_cat.values()), set(), []
     while len(out) < n and queues:
         nxt = []
@@ -101,30 +125,38 @@ def main():
     ap.add_argument("--mlp-checkpoint", default=None, help="caption-pretrained projector.pth -> experiment B")
     ap.add_argument("--eval-jsonl", nargs="+", required=True, help="evaluation files (absolute image paths)")
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--balance-answers", action="store_true",
+                    help="also balance answers within each question type -> experiment C_balanced_answers")
     args = ap.parse_args()
 
     out = Path(args.out).resolve()
     base = yaml.safe_load(open(args.base_config))
     rng = random.Random(args.seed)
     train_files, val_files = [], []
+    data_dir = out / ("data_balanced" if args.balance_answers else "data")
     for name, tr, va, root in sources(base["data"]):
         recs = load(tr, root)
-        sub = pick(recs, args.per_dataset, rng)
+        sub = pick(recs, args.per_dataset, rng, args.balance_answers)
         n_img = len({r["image"] for r in recs})
         missing = sum(not os.path.exists(r["image"]) for r in sub[:20])
         cats = collections.Counter(r.get("category", "?") for r in sub)
+        cnt = collections.Counter(answer_key(r) for r in sub if "count" in r.get("category", "").lower())
         print(f"{name}: {len(recs)} questions on {n_img} images -> picked {len(sub)} "
               f"({len(cats)} categories, {min(cats.values())}-{max(cats.values())} each)"
               + (f"  WARNING {missing}/20 checked images missing" if missing else ""))
-        write(out / "data" / f"train_{name}.jsonl", sub)
-        train_files.append(str(out / "data" / f"train_{name}.jsonl"))
+        if cnt:
+            print(f"   counting answers: {dict(cnt.most_common())}")
+        write(data_dir / f"train_{name}.jsonl", sub)
+        train_files.append(str(data_dir / f"train_{name}.jsonl"))
         if va:
             vsub = pick(load(va, root), args.val_per_dataset, rng)
-            write(out / "data" / f"val_{name}.jsonl", vsub)
-            val_files.append(str(out / "data" / f"val_{name}.jsonl"))
+            write(data_dir / f"val_{name}.jsonl", vsub)
+            val_files.append(str(data_dir / f"val_{name}.jsonl"))
 
     exps = {"A_random_mlp": None}
-    if args.mlp_checkpoint:
+    if args.balance_answers:
+        exps = {"C_balanced_answers": None}
+    elif args.mlp_checkpoint:
         exps["B_caption_mlp"] = args.mlp_checkpoint
     for exp, mlp in exps.items():
         d = out / exp
