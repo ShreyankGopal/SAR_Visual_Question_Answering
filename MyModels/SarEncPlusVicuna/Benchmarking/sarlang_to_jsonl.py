@@ -26,7 +26,8 @@ import csv
 import glob
 import json
 import os
-import re
+
+from score import normalise
 
 PROMPT = "Question: {q}. Answer the question concisely."
 
@@ -34,8 +35,9 @@ PROMPT = "Question: {q}. Answer the question concisely."
 def qkey(image: str, question: str) -> tuple:
     """Match a JSON question to its CSV row: image stem + question text without the
     answer-option list the JSON appends ("...?The classes are: tank, car, ...")."""
-    q = re.sub(r"[^\w\s]", "", question.split("The classes are")[0].lower())
-    return os.path.splitext(os.path.basename(image.strip()))[0], " ".join(q.split())
+    # lenient normalise (drops a/an/the, number words -> digits): DFC2023's CSV and JSON wordings
+    # differ in such details, and this is the matching that paired every test question
+    return os.path.splitext(os.path.basename(image.strip()))[0], normalise(question.split("The classes are")[0])
 
 
 def load_types(csv_path: str) -> dict:
