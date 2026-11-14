@@ -1,4 +1,5 @@
 """Tests for Benchmarking/make_sarlang_pilot.py: subsets, overlap guard, init_from in config."""
+import collections
 import json
 import os
 import subprocess
@@ -47,3 +48,39 @@ def test_builds_subsets_and_config(tmp_path):
 def test_stops_on_train_test_overlap(tmp_path):
     r = _run(tmp_path, ["a0", "t3"])
     assert r.returncode != 0 and "also SARLANG test images" in r.stderr
+
+
+def test_full_run_mode(tmp_path):
+    # SARDet-like file: 40 images x 4 question types; small file: 5 images x 3 questions
+    def rec(img, qt, src):
+        return {"id": f"{img}_{qt}", "image": f"/img/{img}.png", "category": src, "question_type": qt,
+                "ground_truth_facts": {"image_name": img, "source": src, "leaked": False},
+                "conversations": [{"from": "human", "value": qt}, {"from": "gpt", "value": "a"}]}
+    big = [rec(f"s{i}", t, "SARDet-100K") for i in range(40) for t in "ABCD"]
+    small = [rec(f"o{i}", f"T{j}", "OEM") for i in range(5) for j in range(3)]
+    for p, rows in (("big.jsonl", big), ("small.jsonl", small)):
+        (tmp_path / p).write_text("".join(json.dumps(r) + "\n" for r in rows))
+    _jsonl(tmp_path / "te.jsonl", [f"t{i}" for i in range(5)])
+    base = tmp_path / "base.yaml"
+    base.write_text(yaml.safe_dump({"data": {"train_jsonl": "x", "data_root": "y"},
+                                    "training": {"micro_batch_size": 2, "checkpoint_every": 5}}))
+    r = subprocess.run([sys.executable, SCRIPT, "--base-config", str(base), "--init-from", "/ck/step_66080",
+                        "--train", str(tmp_path / "big.jsonl"), str(tmp_path / "small.jsonl"),
+                        "--test", str(tmp_path / "te.jsonl"), "--out", str(tmp_path / "F"),
+                        "--per-part", "-1", "--take-all", str(tmp_path / "small.jsonl"),
+                        "--balance-key", "question_type", "--val-per-part", "4", "--test-per-part", "0",
+                        "--epochs", "1", "--keep-fractions", "0.25", "0.5"], capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+    d = tmp_path / "F" / "data"
+    tb = [json.loads(l) for l in open(d / "train_big.jsonl")]
+    ts = [json.loads(l) for l in open(d / "train_small.jsonl")]
+    vb = {json.loads(l)["image"] for l in open(d / "val_big.jsonl")}
+    vs = {json.loads(l)["image"] for l in open(d / "val_small.jsonl")}
+    assert len(tb) == 36 and len({x["image"] for x in tb}) == 36            # every non-val image once
+    assert sorted(collections.Counter(x["question_type"] for x in tb).values()) == [9, 9, 9, 9]
+    assert len(vs) == 4 and len(ts) == 3                                    # all questions of the 1 non-val image
+    assert not vb & {x["image"] for x in tb} and not vs & {x["image"] for x in ts}
+    c = yaml.safe_load(open(tmp_path / "F" / "train_config.yaml"))
+    assert c["training"]["keep_steps"] == [5, 10]                          # 39 Qs / 2 = 19 steps; 25%, 50%
+    full = yaml.safe_load(open(tmp_path / "F" / "eval_full_sarlang.yaml"))
+    assert full["data"]["val_jsonl"].endswith("te.jsonl")

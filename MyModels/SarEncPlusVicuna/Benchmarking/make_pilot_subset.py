@@ -83,11 +83,11 @@ def interleave_answers(v: list, rng: random.Random) -> list:
     return out[::-1]
 
 
-def pick(recs: list, n: int, rng: random.Random, balance_answers: bool = False) -> list:
-    """Up to n records, one per image, round-robin over categories (and over answers within one)."""
+def pick(recs: list, n: int, rng: random.Random, balance_answers: bool = False, key: str = "category") -> list:
+    """Up to n records, one per image, round-robin over r[key] (and over answers within one)."""
     by_cat = collections.defaultdict(list)
     for r in recs:
-        by_cat[r.get("category", "?")].append(r)
+        by_cat[r.get(key, "?")].append(r)
     for k, v in by_cat.items():
         rng.shuffle(v)
         if balance_answers:

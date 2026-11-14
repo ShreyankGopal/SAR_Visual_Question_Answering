@@ -6,6 +6,9 @@ training.init_from = <step_N folder> loads that checkpoint's WEIGHTS
 (LoRA, projector, MaRS adapters) as the starting point, but starts at
 step 0 / epoch 1 with a fresh optimizer. Ignored once this run has its
 own checkpoint in save_dir (then it resumes as usual).
+training.keep_steps = [N, ...] also copies those step checkpoints to
+<save_dir>/../kept_checkpoints/ so the keep-last-2 pruning never removes them
+(must be multiples of checkpoint_every).
 
 Checkpointing:
     - Save every 20 training batches (CHECKPOINT_EVERY), and once more
@@ -891,7 +894,7 @@ def main():
                 # Save BEFORE validation/sampling. epoch=epoch (not epoch+1):
                 # this is a mid-epoch checkpoint, so resuming re-runs this epoch.
                 try:
-                    save_checkpoint(
+                    ck = save_checkpoint(
                         vlm=vlm,
                         optimizer=optimizer,
                         scaler=scaler,
@@ -901,6 +904,11 @@ def main():
                         log_file=c_train["log_file"],
                         only_mlp=only_mlp,
                     )
+                    if global_step in c_train.get("keep_steps", []):
+                        kept = os.path.join(os.path.dirname(c_train["save_dir"].rstrip("/")),
+                                            "kept_checkpoints", os.path.basename(ck))
+                        shutil.copytree(ck, kept, dirs_exist_ok=True)
+                        log(f"keep_steps: copied {ck} -> {kept}", c_train["log_file"])
                 except Exception as e:
                     log(
                         f"CHECKPOINT FAILED at step {global_step}: {type(e).__name__}: {e}",
