@@ -52,7 +52,7 @@ from torch.utils.data import DataLoader
 from transformers import AutoTokenizer
 from tqdm import tqdm
 
-from model.sar_vlm import SARVLM, build_sar_encoder
+from model.sar_vlm import SARVLM, build_sar_encoder, position_scale
 from model.mars_adapters import install_mars_adapters, load_mars_adapters, save_mars_adapters
 from model.LoraGatingGSD import save_gated_lora
 from dataset import SARVLMDataset, SARCaptioningDs, collate_fn, count_jsonl_records
@@ -610,6 +610,7 @@ def main():
         georope_gcc_alpha=c_georope.get("gcc_alpha", 0.5),
         georope_gfc_hidden_dim=c_georope.get("gfc_hidden_dim", 64),
         georope_zero_init_output=c_georope.get("zero_init_output", False),
+        pos_encoding_scale=position_scale(config),
     )
 
     vlm.hybrid_vicuna.gradient_checkpointing_enable()

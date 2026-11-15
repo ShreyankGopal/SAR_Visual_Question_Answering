@@ -71,7 +71,7 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_DIR = SCRIPT_DIR.parent
 sys.path.insert(0, str(REPO_DIR))
 
-from model.sar_vlm import SARVLM, build_sar_encoder
+from model.sar_vlm import SARVLM, build_sar_encoder, position_scale
 from model.mars_adapters import install_mars_adapters, load_mars_adapters
 from dataset import SARVLMDataset, collate_fn
 
@@ -386,6 +386,7 @@ def load_model(config: dict, checkpoint_path: str = None):
         georope_gcc_alpha=c_georope.get("gcc_alpha", 0.5),
         georope_gfc_hidden_dim=c_georope.get("gfc_hidden_dim", 64),
         georope_zero_init_output=c_georope.get("zero_init_output", False),
+        pos_encoding_scale=position_scale(config),
     )
     vlm = vlm.to(device)
     vlm.eval()

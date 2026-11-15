@@ -182,6 +182,31 @@ class _SAREncoderWrapper(nn.Module):
         return f3.reshape(B, H * W, C)
 
 
+def sincos_2d(n_visual: int, dim: int) -> torch.Tensor:
+    """Fixed 2D sin/cos position code [n_visual, dim] (MAE style), row-major tokens.
+
+    First half of the channels encodes the row, second half the column; each half is
+    sin(pos * w_i) then cos(pos * w_i) with w_i = 1 / 10000^(i / (dim/4)). Values in [-1, 1].
+    """
+    g = int(round(math.sqrt(n_visual)))
+    if g * g != n_visual or dim % 4:
+        raise ValueError(f"need a square token grid and dim % 4 == 0 (got n_visual={n_visual}, dim={dim})")
+    q = dim // 4
+    w = 1.0 / (10000 ** (torch.arange(q, dtype=torch.float64) / q))
+    pos = torch.arange(g, dtype=torch.float64)
+    row = torch.outer(pos, w)                                       # [g, q]
+    one_axis = torch.cat([row.sin(), row.cos()], dim=1)             # [g, dim/2]
+    rows = one_axis.repeat_interleave(g, dim=0)                     # token t -> row t // g
+    cols = one_axis.repeat(g, 1)                                    # token t -> col t % g
+    return torch.cat([rows, cols], dim=1).float()                   # [n_visual, dim]
+
+
+def position_scale(config: dict) -> float:
+    """Config `position_encoding: {enable: true, scale: s}` -> s; absent or disabled -> 0 (off)."""
+    pe = config.get("position_encoding") or {}
+    return float(pe.get("scale", 1.0)) if pe.get("enable", False) else 0.0
+
+
 # ---------------------------------------------------------------------------
 # SARVLM
 # ---------------------------------------------------------------------------
@@ -228,12 +253,19 @@ class SARVLM(nn.Module):
         apply_gate_lora: bool = False,
         apply_lora: bool = True,
         georope_adapter: Optional[nn.Module] = None,
+        pos_encoding_scale: float = 0.0,
     ):
         super().__init__()
 
         self.sar_encoder = sar_encoder
         self.projector = projector
         self.georope_adapter = georope_adapter
+        # Absolute 2D position: scale * sincos_2d added to the encoder tokens before the
+        # projector. 0 = off (default). Fixed, so nothing is saved in checkpoints.
+        self.pos_encoding_scale = float(pos_encoding_scale or 0.0)
+        self._pos_code = None
+        if self.pos_encoding_scale:
+            print(f"[SARVLM] 2D sin/cos position code ON (scale {self.pos_encoding_scale}) before the projector")
 
         # Keep a direct reference to the inner HybridLlamaModel BEFORE PEFT
         # wraps the attention projections.  PEFT modifies the linear layers
@@ -538,13 +570,23 @@ class SARVLM(nn.Module):
         """
         if self._mars_trainable:
             features = self.sar_encoder(sar_input, gsd_ratio=gsd_ratio)
-            return features.to(self.projector.proj[0].weight.dtype)
+            return self._add_position(features.to(self.projector.proj[0].weight.dtype))
 
         with torch.no_grad():
             features = self.sar_encoder(sar_input)  # [B, N_visual, d_sar]
         # Detach so the projector's gradient graph starts at sar_features.
         # Cast to match projector dtype to avoid dtype mismatch
-        return features.detach().to(self.projector.proj[0].weight.dtype)
+        return self._add_position(features.detach().to(self.projector.proj[0].weight.dtype))
+
+    def _add_position(self, features: torch.Tensor) -> torch.Tensor:
+        """features + pos_encoding_scale * 2D sin/cos code; unchanged when the scale is 0."""
+        if not self.pos_encoding_scale:
+            return features
+        N, D = features.shape[1:]
+        if self._pos_code is None or self._pos_code.shape != (N, D):
+            self._pos_code = sincos_2d(N, D)
+        code = self._pos_code.to(device=features.device, dtype=features.dtype)
+        return features + self.pos_encoding_scale * code
 
     def forward(
         self,
