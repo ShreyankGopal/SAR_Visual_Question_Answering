@@ -91,7 +91,7 @@ def convert(items: list, idx: dict, leaked: set, tag: str, types: dict = None):
         for t in range(0, len(msgs) - 1, 2):          # user/assistant pairs (usually just one)
             q = msgs[t]["content"].replace("<image>", "").strip()
             a = msgs[t + 1]["content"].strip()
-            qtype = (types or {}).get(qkey(name, q), "unknown")
+            qtype = (types or {}).get(qkey(it["images"][0], q), "unknown")   # full name: stems can contain dots
             miss["question type unknown (kept)"] += qtype == "unknown"
             yield {
                 "id": f"{tag}_{i:06d}_{t // 2}",

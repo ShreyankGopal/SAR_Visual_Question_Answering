@@ -24,3 +24,16 @@ def test_question_type_from_csv(tmp_path):
     recs = list(s2j.convert(items, idx, set(), "t", types))
     assert [r["question_type"] for r in recs] == ["object classification", "region referring", "unknown"]
     assert s2j.load_types(str(tmp_path / "missing.csv")) == {}
+
+
+def test_image_name_with_dots(tmp_path):
+    # DFC2023 names like GF2_AddisAbaba_9.0314_38.7359.png
+    csv_path = tmp_path / "x.csv"
+    csv_path.write_text("Image Name,Question,Answer,Application\n"
+                        "GF2_A_9.03_38.73.png,What type of buildings are visible?,houses,object classification\n")
+    items = [{"images": ["/your_path/SARimages/GF2_A_9.03_38.73.png"],
+              "messages": [{"role": "user", "content": "<image>What type of buildings are visible?"},
+                           {"role": "assistant", "content": "houses"}]}]
+    idx = {"GF2_A_9.03_38.73": ("/d/GF2_A_9.03_38.73.png", "DFC2023")}
+    recs = list(s2j.convert(items, idx, set(), "t", s2j.load_types(str(csv_path))))
+    assert recs[0]["question_type"] == "object classification"
